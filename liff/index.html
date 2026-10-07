@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AIパネル</title>
+<style>
+:root{--bg:#f6f7f5;--panel:#fff;--fg:#1d2420;--muted:#5f6b66;--line:#d9dfdb;--accent:#0f6e6e;--accent-soft:#d6ebea;--ok:#1d7a3e;--ng:#b23a2e;--ng-soft:#fbe9e6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"Noto Sans JP",system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.6}
+.wrap{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:16px;margin:0 0 8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input[type=text],input[type=url],input[type=number],select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--fg)}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.btn{display:inline-block;font:inherit;font-weight:700;padding:11px 16px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer;width:100%;margin-top:12px}
+.btn.sec{background:var(--accent-soft);color:var(--accent);width:auto;padding:8px 12px;margin:0}
+.btn[disabled]{opacity:.5}
+.prompt{background:var(--accent-soft);border-radius:8px;padding:12px;font-weight:700;margin:8px 0}
+.steps{margin:0;padding-left:1.2em;font-size:14px}
+.msg{padding:10px 12px;border-radius:8px;font-size:14px;margin-top:10px}
+.msg.ng{background:var(--ng-soft);color:var(--ng)}
+.msg.ok{background:var(--accent-soft);color:var(--ok)}
+.pts{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.topic{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.topic:first-of-type{border-top:0}
+.tag{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.done{background:#e6f1ea;color:var(--ok)}
+.muted{color:var(--muted);font-size:13px}
+.radios label{display:inline-flex;align-items:center;gap:6px;margin:4px 12px 4px 0;color:var(--fg);font-size:14px}
+a.back{color:var(--accent);font-size:14px;display:inline-block;margin-bottom:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AIパネル</h1>
+  <p class="muted" id="who"></p>
+  <div id="app"><p class="muted">読み込み中…</p></div>
+</div>
+<script>
+const $=s=>document.querySelector(s);
+let CFG={}, UID=null, IDTOKEN=null, ME=null, TOPICS=[];
+const PREFS=["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+async function api(path,opt={}){
+  const h={"Content-Type":"application/json"};
+  if(IDTOKEN) h["Authorization"]="Bearer "+IDTOKEN; else if(UID) h["X-Dev-Uid"]=UID;
+  const r=await fetch(path,{...opt,headers:h,body:opt.body?JSON.stringify(opt.body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.detail||("エラー "+r.status));
+  return j;
+}
+async function boot(){
+  CFG=await (await fetch("/api/config")).json();
+  const isLocal=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  if(CFG.liffId && !isLocal){
+    await new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://static.line-scdn.net/liff/edge/2/sdk.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+    await liff.init({liffId:CFG.liffId});
+    if(!liff.isLoggedIn()){liff.login();return;}
+    IDTOKEN=liff.getIDToken();
+  }else{
+    try{UID=localStorage.getItem("devuid")}catch(e){}
+    if(!CFG.devMode){$("#app").innerHTML=`<div class="msg ng">LINEから開いてください</div>`;return;}
+    if(!UID){renderDevLogin();return;}
+    $("#who").textContent="開発モード：ID "+UID;
+  }
+  await load();
+}
+function renderDevLogin(){
+  $("#app").innerHTML=`<div class="card"><h2>開発モード</h2><p class="muted">LINE の代わりに、開発用のIDを入れてください（任意の文字列）。</p>
+  <input type="text" id="devuid" placeholder="例: tester1"><button class="btn" id="devgo">はじめる</button></div>`;
+  $("#devgo").onclick=()=>{const v=$("#devuid").value.trim();if(!v)return;try{localStorage.setItem("devuid",v)}catch(e){}UID=v;$("#who").textContent="開発モード：ID "+UID;load();};
+}
+async function load(){
+  ME=await api("/api/me");
+  if(!ME.registered){renderRegister();return;}
+  TOPICS=await api("/api/topics");
+  renderHome();
+}
+function renderRegister(){
+  const yrs=[];for(let y=new Date().getFullYear()-18;y>=1930;y--)yrs.push(y);
+  $("#app").innerHTML=`<div class="card"><h2>はじめに（1分）</h2>
+  <p class="muted">この調査は、ChatGPTのおすすめが人によってどう違うかを調べるものです。あなたが提出した回答は、名前などを伏せたうえで集計に使います。</p>
+  <label>性別</label><select id="gender"><option value="">選んでください</option><option value="female">女性</option><option value="male">男性</option><option value="other">その他・答えない</option></select>
+  <label>生まれた年</label><select id="birth_year"><option value="">選んでください</option>${yrs.map(y=>`<option>${y}</option>`).join("")}</select>
+  <label>お住まい</label><select id="prefecture"><option value="">選んでください</option>${PREFS.map(p=>`<option>${p}</option>`).join("")}</select>
+  <label>同居している家族</label><select id="household"><option value="">選んでください</option><option value="single">一人暮らし</option><option value="couple">夫婦・パートナーと</option><option value="with_parents">親と</option><option value="family_kids">子どもと</option><option value="other">その他</option></select>
+  <label>ChatGPTのプラン</label><select id="ai_plan"><option value="">選んでください</option><option value="free">無料</option><option value="paid">有料（Plus・Proなど）</option><option value="unknown">分からない</option></select>
+  <label>ChatGPTのメモリ機能（あなたのことを覚えておく機能）</label><select id="memory_setting"><option value="">選んでください</option><option value="on">ONにしている</option><option value="off">OFFにしている</option><option value="unknown">分からない</option></select>
+  <label>ChatGPTを使う頻度</label><select id="usage_freq"><option value="">選んでください</option><option value="daily">ほぼ毎日</option><option value="weekly_several">週に数回</option><option value="weekly">週1回くらい</option><option value="monthly">月に数回以下</option></select>
+  <label>使い始めた時期</label><select id="started_at"><option value="">選んでください</option><option value="lt3m">3か月未満</option><option value="3m_1y">3か月〜1年</option><option value="gt1y">1年以上</option></select>
+  <label>主に使う端末</label><select id="device"><option value="">選んでください</option><option value="iphone">iPhone</option><option value="android">Android</option><option value="pc">パソコン</option></select>
+  <div class="radios" style="margin-top:12px"><label><input type="checkbox" id="consent"> 回答の利用目的と個人情報の扱いに同意する</label></div>
+  <button class="btn" id="reg">登録する</button><div id="regmsg"></div></div>`;
+  $("#reg").onclick=async()=>{
+    const ids=["gender","birth_year","prefecture","household","ai_plan","memory_setting","usage_freq","started_at","device"];
+    const body={consent:$("#consent").checked};
+    for(const k of ids){const v=$("#"+k).value;if(!v){$("#regmsg").innerHTML=`<div class="msg ng">すべての項目を選んでください</div>`;return;}body[k]=k==="birth_year"?Number(v):v;}
+    try{await api("/api/register",{method:"POST",body});await load();}catch(e){$("#regmsg").innerHTML=`<div class="msg ng">${e.message}</div>`;}
+  };
+}
+function renderHome(){
+  const list=TOPICS.map(t=>`<div class="topic"><div><div><b>${t.category}</b></div><div class="muted">${t.point_value}ポイント</div></div>
+    ${t.status==="accepted"||t.status==="reference"?`<span class="tag done">提出済み</span>`:t.status==="pending"?`<span class="tag">確認中</span>`:`<button class="btn sec" data-topic="${t.id}">やる</button>`}</div>`).join("");
+  $("#app").innerHTML=`<div class="card"><div class="muted">ポイント</div><div class="pts">${ME.points}</div></div>
+  <div class="card"><h2>今週のお題</h2>${list||'<p class="muted">いまは受付中のお題がありません。</p>'}</div>`;
+  document.querySelectorAll("[data-topic]").forEach(b=>b.onclick=()=>renderSubmit(Number(b.dataset.topic)));
+}
+async function renderSubmit(tid){
+  const t=TOPICS.find(x=>x.id===tid);
+  const brands=await api("/api/brands?category_key="+t.category_key);
+  $("#app").innerHTML=`<a class="back" href="#" id="back">← お題一覧</a><div class="card"><h2>${t.category}</h2>
+  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る。<b>文言は変えない</b>。回答が長くても大丈夫</li><li>回答が出たら、画面上の「共有」からリンクを作り、下に貼る</li></ol>
+  <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
+  <p class="muted" style="margin-top:8px">おすすめが出ずに質問だけ返ってきたら、同じチャットで「おまかせします。おすすめを5つ教えてください。」と1回だけ送ってください。</p>
+  <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
+  <label>いま使っている${t.category}のブランド（なければ「なし」）</label><input type="text" id="own" list="brandlist" placeholder="例: ${brands[0]||""}"><datalist id="brandlist">${brands.map(b=>`<option value="${b}">`).join("")}</datalist>
+  <label>3か月以内に、新しく買う・乗り換える予定はありますか</label><div class="radios"><label><input type="radio" name="intent" value="yes">ある</label><label><input type="radio" name="intent" value="no">ない</label><label><input type="radio" name="intent" value="unknown">分からない</label></div>
+  <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
+  $("#back").onclick=e=>{e.preventDefault();load();};
+  $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(t.prompt_text);$("#copy").textContent="コピーしました";}catch(e){const r=document.createRange();r.selectNodeContents($("#ptxt"));getSelection().removeAllRanges();getSelection().addRange(r);$("#copy").textContent="選択しました。長押しでコピー";}};
+  const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
+  $("#link").oninput=()=>{const v=$("#link").value.trim();if(!v){$("#linkmsg").innerHTML="";return;}
+    if(SHARE.test(v))$("#linkmsg").innerHTML=`<div class="msg ok">リンクの形式はOKです</div>`;
+    else if(/chatgpt\.com\/c\//.test(v))$("#linkmsg").innerHTML=`<div class="msg ng">それは本人しか開けないURLです。画面の「共有」ボタンからリンクを作ってください。</div>`;
+    else $("#linkmsg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください。</div>`;};
+  $("#send").onclick=async()=>{
+    const link=$("#link").value.trim();const intent=(document.querySelector("input[name=intent]:checked")||{}).value;
+    if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">共有リンクを確認してください</div>`;return;}
+    if(!intent){$("#msg").innerHTML=`<div class="msg ng">購入予定を選んでください</div>`;return;}
+    $("#send").disabled=true;$("#msg").innerHTML=`<div class="msg ok">回答を確認しています（10〜30秒）…</div>`;
+    try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:tid,link_url:link,own_brand_text:$("#own").value,intent}});poll(r.id);}
+    catch(e){$("#send").disabled=false;$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}
+  };
+}
+async function poll(id){
+  for(let i=0;i<40;i++){
+    await new Promise(r=>setTimeout(r,2000));
+    const s=await api("/api/submissions/"+id);
+    if(s.accept_status==="accepted"||s.accept_status==="reference"){$("#msg").innerHTML=`<div class="msg ok">受付しました。ポイントを付与しました。<br><span class="muted">読み取ったおすすめ：${(s.brands||[]).join("、")||"（ブランド名を読み取れませんでした）"}</span></div><button class="btn" id="home">お題一覧へ</button>`;$("#home").onclick=()=>load();return;}
+    if(s.accept_status==="rejected"){$("#msg").innerHTML=`<div class="msg ng">${s.reject_reason}</div>`;$("#send").disabled=false;return;}
+  }
+  $("#msg").innerHTML=`<div class="msg ng">確認に時間がかかっています。あとで「お題一覧」から状態を確認してください。</div>`;
+}
+boot().catch(e=>{$("#app").innerHTML=`<div class="msg ng">${e.message}</div>`});
+</script>
+</body>
+</html>

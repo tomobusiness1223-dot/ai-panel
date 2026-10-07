@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ai-panel
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: DEV_MODE
+        value: "0"
+      - key: LINE_CHANNEL_ID
+        value: "2011920187"
+      - key: LIFF_ID
+        value: "2011920187-5XCmOIeW"
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: RAW_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
