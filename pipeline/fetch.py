@@ -64,37 +64,64 @@ JS_EXTRACT = r"""
 }
 """
 
-async def fetch_share_page(url: str, timeout_ms: int = 20000) -> FetchResult:
+_loop = None
+_browser = None
+_pw = None
+
+def _ensure_loop():
+    """Playwright のブラウザを1つ起動したまま使い回す（提出ごとの起動時間を省く）。専用スレッドのイベントループで動かす。"""
+    global _loop
+    if _loop is None:
+        import threading
+        _loop = asyncio.new_event_loop()
+        threading.Thread(target=_loop.run_forever, daemon=True).start()
+    return _loop
+
+async def _get_browser():
+    global _browser, _pw
+    if _browser is not None and _browser.is_connected():
+        return _browser
     from playwright.async_api import async_playwright
+    if _pw is None:
+        _pw = await async_playwright().start()
+    _browser = await _pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+    return _browser
+
+async def fetch_share_page(url: str, timeout_ms: int = 20000) -> FetchResult:
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            ctx = await browser.new_context(locale="ja-JP", user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-            page = await ctx.new_page()
+        browser = await _get_browser()
+        ctx = await browser.new_context(locale="ja-JP", user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+        page = await ctx.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-                # 無効なリンクはトップページへ飛ばされる
-                try:
-                    await page.wait_for_selector("[data-message-author-role]", timeout=timeout_ms)
-                except Exception:
-                    path = urlparse(page.url).path
-                    if path in ("", "/") or "auth" in page.url:
-                        return FetchResult("invalid", [], page.url, await page.title())
-                    return FetchResult("invalid", [], page.url, await page.title(), error="no messages")
-                await page.wait_for_timeout(800)  # 遅延描画分
-                items = await page.evaluate(JS_EXTRACT)
-                html = await page.content()
-                msgs = [Message(i["role"], i["text"].strip(), bool(i["has_citation"]), (i.get("widget_text") or "").strip()) for i in items if i["text"].strip()]
-                return FetchResult("ok" if msgs else "invalid", msgs, page.url, await page.title(), html)
-            finally:
-                await browser.close()
-    except Exception as e:  # ネットワーク・起動失敗
+                await page.wait_for_selector("[data-message-author-role]", timeout=timeout_ms)
+            except Exception:
+                title = await page.title()
+                path = urlparse(page.url).path
+                body = (await page.evaluate("() => document.body ? document.body.innerText.slice(0, 300) : ''")) or ""
+                print(f"[fetch] no messages url={url} final={page.url} title={title!r} body={body[:120]!r}", flush=True)
+                if path in ("", "/") or "auth" in page.url:
+                    return FetchResult("invalid", [], page.url, title)
+                return FetchResult("invalid", [], page.url, title, error="no messages: " + title)
+            await page.wait_for_timeout(800)
+            items = await page.evaluate(JS_EXTRACT)
+            html = await page.content()
+            msgs = [Message(i["role"], i["text"].strip(), bool(i["has_citation"]), (i.get("widget_text") or "").strip()) for i in items if i["text"].strip()]
+            return FetchResult("ok" if msgs else "invalid", msgs, page.url, await page.title(), html)
+        finally:
+            await ctx.close()
+    except Exception as e:
+        print(f"[fetch] error url={url} err={type(e).__name__}: {str(e)[:200]}", flush=True)
+        global _browser
+        _browser = None
         return FetchResult("error", [], error=str(e)[:300])
 
 def fetch_sync(url: str, retries: int = 2) -> FetchResult:
     last = None
+    loop = _ensure_loop()
     for _ in range(retries + 1):
-        last = asyncio.run(fetch_share_page(url))
+        last = asyncio.run_coroutine_threadsafe(fetch_share_page(url), loop).result(timeout=90)
         if last.status != "error":
             return last
     return last

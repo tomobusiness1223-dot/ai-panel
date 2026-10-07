@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from sqlalchemy import select
 from server.db import SessionLocal, init_db, Category, Brand, Topic
 
-PROMPT = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。"
+PROMPT_V1 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。"
+PROMPT = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。私に合った提案にするために、必要なら先に質問して、回答の質を上げてください。"  # v2：ヒアリングあり
 CATEGORIES = [
     # key, 表示名, 質問に入れる名前, 単位の言い方, 型
     ("toner", "化粧水", "化粧水", "ブランド名", "unknown"),
@@ -68,9 +69,11 @@ def run():
         c = db.scalar(select(Category).where(Category.key == key))
         if not c:
             c = Category(key=key, name=name, type=ctype); db.add(c); db.flush()
-        prompt = PROMPT.format(cat=cname, unit=unit)
-        if not db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1")):
-            db.add(Topic(category_id=c.id, prompt_text=prompt, prompt_version="v1", point_value=30))
+        from server.db import now
+        for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1", Topic.closes_at.is_(None))):
+            t.closes_at = now()  # v1（ヒアリングなし）は締める
+        if not db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v2")):
+            db.add(Topic(category_id=c.id, prompt_text=PROMPT.format(cat=cname, unit=unit), prompt_version="v2", point_value=30, mode="dialog"))
         have = {b.canonical_name for b in db.scalars(select(Brand).where(Brand.category_id == c.id))}
         for canon, aliases in BRANDS.get(key, {}).items():
             if canon not in have:

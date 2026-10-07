@@ -112,9 +112,9 @@ async function renderSubmit(tid){
   const t=TOPICS.find(x=>x.id===tid);
   const brands=await api("/api/brands?category_key="+t.category_key);
   $("#app").innerHTML=`<a class="back" href="#" id="back">← お題一覧</a><div class="card"><h2>${t.category}</h2>
-  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る。<b>文言は変えない</b>。回答が長くても大丈夫</li><li>回答が出たら、画面上の「共有」からリンクを作り、下に貼る</li></ol>
+  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る。<b>文言は変えない</b></li>${t.mode==="dialog"?'<li>ChatGPTから質問が来たら、普段どおりに答える（何往復でもOK）</li><li><b>おすすめ5つが出そろったら</b>、画面上の「共有」からリンクを作り、下に貼る</li>':'<li>回答が出たら、画面上の「共有」からリンクを作り、下に貼る</li>'}</ol>
   <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
-  <p class="muted" style="margin-top:8px">おすすめが出ずに質問だけ返ってきたら、同じチャットで「おまかせします。おすすめを5つ教えてください。」と1回だけ送ってください。</p>
+  <p class="muted" style="margin-top:8px">${t.mode==="dialog"?'質問に答えたくないときは「おまかせします。おすすめを5つ教えてください。」と送ってください。':'おすすめが出ずに質問だけ返ってきたら、同じチャットで「おまかせします。おすすめを5つ教えてください。」と1回だけ送ってください。'}</p>
   <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
   <label>いま使っている${t.category}のブランド（なければ「なし」）</label><input type="text" id="own" list="brandlist" placeholder="例: ${brands[0]||""}"><datalist id="brandlist">${brands.map(b=>`<option value="${b}">`).join("")}</datalist>
   <label>3か月以内に、新しく買う・乗り換える予定はありますか</label><div class="radios"><label><input type="radio" name="intent" value="yes">ある</label><label><input type="radio" name="intent" value="no">ない</label><label><input type="radio" name="intent" value="unknown">分からない</label></div>

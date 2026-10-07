@@ -38,10 +38,11 @@ def process_submission(sub_id: int) -> None:
         topic = db.get(Topic, sub.topic_id)
         res = fetch_sync(sub.link_url)
         sub.fetch_status = res.status
+        print(f"[process] sub={sub.id} fetch={res.status} final={res.final_url} title={res.title!r} msgs={len(res.messages)} err={res.error}", flush=True)
         if res.status != "ok":
             sub.accept_status, sub.reject_reason = "rejected", REJECT_TEXT[res.status]
             db.commit(); return
-        mr = match_prompt(topic.prompt_text, res.messages)
+        mr = match_prompt(topic.prompt_text, res.messages, mode=topic.mode)
         sub.match_status = mr.status
         if mr.status in ("modified", "samechat", "fail"):
             # 本文は保存しない（分析に使わない）。差し戻し
@@ -67,7 +68,7 @@ def process_submission(sub_id: int) -> None:
         db.add(PersonalizationSignal(response_id=resp.id, level=lv[0], evidence_text=redact(lv[1], names), classifier_version=cv))
         if sub.own_brand_text:
             db.add(OwnBrand(submission_id=sub.id, brand_id=own_brand_lookup(sub.own_brand_text, compiled), raw_text=sub.own_brand_text))
-        sub.accept_status = "accepted" if mr.status in ("ok", "typo") else "reference"
+        sub.accept_status = "accepted" if mr.status in ("ok", "typo", "dialog") else "reference"
         db.add(PointLedger(panelist_id=sub.panelist_id, delta=topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
         db.commit()
     except Exception as e:

@@ -36,6 +36,12 @@ def test_match():
     assert r.status == "fallback" and r.answer == A
     assert match_prompt(P, [Message("user", "今日の日付は？"), Message("assistant", "10月6日"), Message("user", P), Message("assistant", A)]).status == "samechat"
 
+def test_dialog_mode():
+    msgs = [Message("user", P), Message("assistant", "髪質と悩みを教えてください"), Message("user", "乾燥しやすい、くせ毛"), Message("assistant", A)]
+    r = match_prompt(P, msgs, mode="dialog")
+    assert r.status == "dialog" and r.answer == A
+    assert match_prompt(P, msgs, mode="single").status == "followup"
+
 def test_brands():
     comp = compile_brands([(1, "YOLU", "yolu\nヨル"), (2, "BOTANIST", "ボタニスト"), (3, "ミノン", "MINON"), (4, "いち髪", ""), (5, "&honey", "アンドハニー"), (6, "h&s", ""), (7, "キュレル", "")])
     f = {x.name: x for x in extract_brands(A, comp)}

@@ -67,6 +67,7 @@ class Topic(Base):
     opens_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
     closes_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     point_value: Mapped[int] = mapped_column(Integer, default=30)
+    mode: Mapped[str] = mapped_column(String(10), default="single")   # single（1往復）/ dialog（ヒアリングの往復を認め、最後の回答を使う）
 
 class Submission(Base):
     __tablename__ = "submission"

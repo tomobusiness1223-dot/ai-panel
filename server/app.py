@@ -116,7 +116,7 @@ def topics(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
             if s.accept_status in ("accepted", "reference", "pending"):
                 done[s.topic_id] = s.accept_status
     return [{"id": tp.id, "category": c.name, "category_key": c.key, "prompt_text": tp.prompt_text, "point_value": tp.point_value,
-             "status": done.get(tp.id)} for tp, c in rows]
+             "mode": tp.mode, "status": done.get(tp.id)} for tp, c in rows]
 
 @app.get("/api/brands")
 def brands(category_key: str, db: Session = Depends(get_db)):

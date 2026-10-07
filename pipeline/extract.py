@@ -14,12 +14,13 @@ def norm(s: str) -> str:
 
 @dataclasses.dataclass
 class MatchResult:
-    status: str                 # ok / typo / turn / followup / fallback / modified / samechat / fail
+    status: str                 # ok / typo / turn / followup / fallback / dialog / modified / samechat / fail
     answer: str                 # 分析に使う assistant の回答本文
     answer_index: int           # messages 内の位置
     note: str = ""
 
-def match_prompt(prompt: str, messages: list[Message]) -> MatchResult:
+def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> MatchResult:
+    """mode="dialog" のお題では、質問文のあとに AI が質問し参加者が答える往復を認め、最後の回答を使う。"""
     users = [(i, m) for i, m in enumerate(messages) if m.role == "user"]
     assistants = [(i, m) for i, m in enumerate(messages) if m.role == "assistant"]
     if not assistants:
@@ -59,6 +60,10 @@ def match_prompt(prompt: str, messages: list[Message]) -> MatchResult:
             j2, ans2 = answer_after(users[1][0])
             # 1回目が質問返しだった場合は2回目の回答を使う（定型文ルール）
             return MatchResult("fallback", ans2 or ans, j2 if ans2 else j, "定型文を1回送った")
+        if mode == "dialog":
+            # ヒアリングの往復を経た最後の回答を使う
+            j_last, m_last = assistants[-1]
+            return MatchResult("dialog", m_last.text, j_last, f"往復あり（ユーザー発言{len(users)}回）。最後の回答を使用")
         return MatchResult("followup", ans, j, "回答のあとに追加の指示あり。1回目の回答を使用")
     if first_k == "modified":
         return MatchResult("modified", "", -1, "質問文に付け足し・変更あり")
