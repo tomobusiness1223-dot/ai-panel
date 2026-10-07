@@ -2,12 +2,8 @@ services:
   - type: web
     name: ai-panel
     runtime: docker
-    plan: starter
+    plan: free   # 本番前に starter に変更し、disk（/app/data）を追加する。free はデータが再デプロイで消える
     autoDeploy: true
-    disk:
-      name: data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: DEV_MODE
         value: "0"
