@@ -4,6 +4,7 @@ import os, json, hashlib
 from sqlalchemy.orm import Session
 from .db import SessionLocal, Submission, Topic, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, now
 from pipeline.fetch import fetch_sync
+from pipeline.share_html import fetch_share_html
 from pipeline.extract import match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup
 from pipeline.redact import redact
 from pipeline import llm
@@ -36,7 +37,9 @@ def process_submission(sub_id: int) -> None:
         if not sub or sub.accept_status != "pending":
             return
         topic = db.get(Topic, sub.topic_id)
-        res = fetch_sync(sub.link_url)
+        res = fetch_share_html(sub.link_url)          # まず HTML から（速い）
+        if res.status == "error":
+            res = fetch_sync(sub.link_url)             # 埋め込みデータが無い形式（s/t_ など）はブラウザで
         sub.fetch_status = res.status
         print(f"[process] sub={sub.id} fetch={res.status} final={res.final_url} title={res.title!r} msgs={len(res.messages)} err={res.error}", flush=True)
         if res.status != "ok":

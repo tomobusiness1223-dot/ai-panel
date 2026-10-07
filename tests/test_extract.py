@@ -62,3 +62,11 @@ def test_personalization_and_redact():
     r = redact(A + " 連絡は test@example.com か 090-1234-5678 まで")
     assert "田中さん" not in r and "〇〇さん" in r and "[メール]" in r and "[電話番号]" in r
     assert redact("皆さんにおすすめ") == "皆さんにおすすめ"
+
+
+def test_turbo_stream_decode():
+    from pipeline.share_html import _decode
+    arr = [{"_1": 2, "_3": 4}, "a", "x", "b", [5, 6, -5], 1, True, ["D", "2026-01-01"]]
+    assert _decode(arr) == {"a": "x", "b": [1, True, None]}
+    arr2 = [{"_1": 2}, "d", ["D", "2026-01-01"]]
+    assert _decode(arr2) == {"d": "2026-01-01"}

@@ -75,7 +75,7 @@ def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> 
     return MatchResult("fail", "", -1, "指定の質問文が見つからない")
 
 # ---- ブランド抽出 ----
-NUM_LINE = re.compile(r"^\s*(?:[#*\-\s]*)(?:(\d{1,2})[.．)）、:：]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:第)?(\d{1,2})\s*位)", re.M)
+NUM_LINE = re.compile(r"^\s*(?:[#*\-\s|]*)(?:(\d{1,2})[.．)）、:：]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:第)?(\d{1,2})\s*位)", re.M)
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 NEG_BEFORE = re.compile(r"(おすすめしない|おすすめできない|勧めない|勧められない|避け|向かない|除外|選ばない|やめ)")
 NEG_AFTER = re.compile(r"(は(おすすめ|お勧め|勧め)(しない|できない|しません|できません|られない|られません|ません|ない)|は避け|は向か|は除外|は選ば|ではなく|以外)")
