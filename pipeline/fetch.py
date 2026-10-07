@@ -2,7 +2,7 @@
 検証実験で確認した方法：ページ内の [data-message-author-role] 要素を発言ごとに読む。
 """
 from __future__ import annotations
-import re, asyncio, dataclasses
+import re, asyncio, dataclasses, time
 from urllib.parse import urlparse
 
 SHARE = re.compile(r"^https://chatgpt\.com/share/[0-9a-f-]{20,}/?$")
@@ -87,13 +87,16 @@ async def _get_browser():
     _browser = await _pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
     return _browser
 
-async def fetch_share_page(url: str, timeout_ms: int = 20000) -> FetchResult:
+async def fetch_share_page(url: str, timeout_ms: int = 45000) -> FetchResult:
     try:
         browser = await _get_browser()
         ctx = await browser.new_context(locale="ja-JP", user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
         page = await ctx.new_page()
+        # 画像・フォント・動画は読まない（小さいサーバーでも速く描画させる）
+        await page.route("**/*", lambda route: route.abort() if route.request.resource_type in ("image", "font", "media") else route.continue_())
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            t0 = time.time()
+            await page.goto(url, wait_until="commit", timeout=timeout_ms)
             try:
                 await page.wait_for_selector("[data-message-author-role]", timeout=timeout_ms)
             except Exception:
@@ -106,6 +109,7 @@ async def fetch_share_page(url: str, timeout_ms: int = 20000) -> FetchResult:
                 return FetchResult("invalid", [], page.url, title, error="no messages: " + title)
             await page.wait_for_timeout(800)
             items = await page.evaluate(JS_EXTRACT)
+            print(f"[fetch] ok url={url} msgs={len(items)} sec={time.time()-t0:.1f}", flush=True)
             html = await page.content()
             msgs = [Message(i["role"], i["text"].strip(), bool(i["has_citation"]), (i.get("widget_text") or "").strip()) for i in items if i["text"].strip()]
             return FetchResult("ok" if msgs else "invalid", msgs, page.url, await page.title(), html)
@@ -121,7 +125,7 @@ def fetch_sync(url: str, retries: int = 2) -> FetchResult:
     last = None
     loop = _ensure_loop()
     for _ in range(retries + 1):
-        last = asyncio.run_coroutine_threadsafe(fetch_share_page(url), loop).result(timeout=90)
+        last = asyncio.run_coroutine_threadsafe(fetch_share_page(url), loop).result(timeout=150)
         if last.status != "error":
             return last
     return last
