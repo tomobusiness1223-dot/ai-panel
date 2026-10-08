@@ -157,6 +157,19 @@ class Source(Base):
     url: Mapped[str] = mapped_column(Text)
     title: Mapped[str | None] = mapped_column(Text)
 
+class Annotation(Base):
+    """あとから付ける注釈（運営が Claude でまとめて処理して書き戻す）。提出の作り直し（backfill）では消さない。
+    kind: condition（ヒアリングで分かった条件。key=項目名, value=値）/ product（順位 key の商品名を value に直す）/
+          new_brand（辞書に無かったブランド。key=順位または空, value=ブランド名）/ personalization（key=level, value=根拠）"""
+    __tablename__ = "annotation"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    key: Mapped[str] = mapped_column(String(60))
+    value: Mapped[str] = mapped_column(Text)
+    version: Mapped[str] = mapped_column(String(20), default="a1")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
 # follow_up（購買追跡）はテスト範囲では作らない。仕様書4章の列定義を本番段階で追加する。
 
 def init_db():

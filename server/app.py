@@ -15,7 +15,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 import httpx
 from .db import (SessionLocal, init_db, Panelist, PanelistAttribute, Category, Brand, Topic, Submission,
-                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now)
+                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, Annotation, now)
 from .process import process_submission
 from pipeline.fetch import classify_link
 
@@ -65,7 +65,8 @@ def health(db: Session = Depends(get_db)):
     return {"ok": True, "panelists": db.scalar(select(func.count(Panelist.id))), "submissions": db.scalar(select(func.count(Submission.id))),
             "accepted": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status.in_(["accepted", "reference"]))),
             "turns": db.scalar(select(func.count(ConversationTurn.id))), "sources": db.scalar(select(func.count(Source.id))),
-            "mentions": db.scalar(select(func.count(Mention.id)).where(Mention.mention_type == "recommended"))}
+            "mentions": db.scalar(select(func.count(Mention.id)).where(Mention.mention_type == "recommended")),
+            "annotated": db.scalar(select(func.count(Annotation.id)).where(Annotation.kind == "done"))}
 
 # ---------- 画面用 ----------
 @app.get("/api/config")
@@ -193,6 +194,54 @@ def admin_unmapped(token: str, db: Session = Depends(get_db)):
                       .where(OwnBrand.brand_id.is_(None))).all()
     return [{"category": c, "text": t} for t, c in rows]
 
+@app.get("/api/admin/pending")
+def admin_pending(token: str, version: str = "a1", limit: int = 50, db: Session = Depends(get_db)):
+    """注釈がまだ付いていない受付済みの提出を、会話（伏字済み）と現在の読み取り結果つきで返す。"""
+    admin(token)
+    done = {sid for (sid,) in db.execute(select(Annotation.submission_id).where(Annotation.version == version).distinct())}
+    out = []
+    rows = db.execute(select(Submission, Topic, Category).join(Topic, Submission.topic_id == Topic.id).join(Category, Topic.category_id == Category.id)
+                      .where(Submission.accept_status.in_(["accepted", "reference"])).order_by(Submission.id)).all()
+    for s, t, c in rows:
+        if s.id in done:
+            continue
+        r = db.scalar(select(Response).where(Response.submission_id == s.id))
+        ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id).order_by(Mention.rank)).all() if r else []
+        out.append({"submission_id": s.id, "category": c.key, "category_name": c.name, "own_brand_text": s.own_brand_text, "answer_note": r.answer_note if r else None,
+                    "turns": [{"idx": tn.idx, "role": tn.role, "kind": tn.kind, "text": tn.redacted_text} for tn in db.scalars(select(ConversationTurn).where(ConversationTurn.submission_id == s.id).order_by(ConversationTurn.idx))],
+                    "mentions": [{"rank": m.rank, "brand": b.canonical_name, "type": m.mention_type, "product": m.product_text} for m, b in ms]})
+        if len(out) >= limit:
+            break
+    return {"version": version, "remaining": len(rows) - len(done), "items": out}
+
+class AnnotationIn(BaseModel):
+    submission_id: int
+    kind: str
+    key: str = ""
+    value: str
+
+class AnnotationsIn(BaseModel):
+    version: str = "a1"
+    items: list[AnnotationIn]
+    done_submission_ids: list[int] = []   # 注釈が0件でも「処理済み」と記録する提出
+
+@app.post("/api/admin/annotations")
+def admin_annotations(body: AnnotationsIn, token: str, db: Session = Depends(get_db)):
+    """注釈を書き戻す。同じ提出・同じ版の注釈は置き換える。"""
+    admin(token)
+    ids = {i.submission_id for i in body.items} | set(body.done_submission_ids)
+    for sid in ids:
+        if not db.get(Submission, sid):
+            raise HTTPException(404, f"submission {sid} がありません")
+        db.query(Annotation).filter_by(submission_id=sid, version=body.version).delete()
+        db.add(Annotation(submission_id=sid, kind="done", key="", value="", version=body.version))
+    for i in body.items:
+        if i.kind not in ("condition", "product", "new_brand", "personalization"):
+            raise HTTPException(422, f"kind が不正です: {i.kind}")
+        db.add(Annotation(submission_id=i.submission_id, kind=i.kind, key=i.key[:60], value=i.value, version=body.version))
+    db.commit()
+    return {"ok": True, "submissions": len(ids), "annotations": len(body.items)}
+
 @app.get("/api/admin/export/{name}")
 def admin_export(name: str, token: str, scope: str = "main", db: Session = Depends(get_db)):
     """analyze.py / build_dashboard_data.py が読む形式の CSV。scope=main は accepted のみ、wide は reference も含む。"""
@@ -236,7 +285,8 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         for (pid, ck), (s, t, c) in latest.items():
             r = db.scalar(select(Response).where(Response.submission_id == s.id))
             for m, b in db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)):
-                w.writerow([pid, ck, m.rank, b.canonical_name, m.product_text or "", int(m.is_numbered)])
+                fix = db.scalar(select(Annotation.value).where(Annotation.submission_id == s.id, Annotation.kind == "product", Annotation.key == str(m.rank)).order_by(Annotation.id.desc()))
+                w.writerow([pid, ck, m.rank, b.canonical_name, fix or m.product_text or "", int(m.is_numbered)])
     elif name == "own_brand":
         w.writerow(["person_id", "category", "brand", "raw_text"])
         for (pid, ck), (s, t, c) in latest.items():
@@ -253,6 +303,16 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         for (pid, ck), (s, t, c) in latest.items():
             for sc in db.scalars(select(Source).where(Source.submission_id == s.id).order_by(Source.turn_idx, Source.id)):
                 w.writerow([pid, ck, s.id, sc.turn_idx, int(sc.is_answer_turn), sc.domain, sc.url, sc.title or ""])
+    elif name == "conditions":   # ヒアリングで分かった条件（何を基準に選んだか）
+        w.writerow(["person_id", "category", "submission_id", "key", "value"])
+        for (pid, ck), (s, t, c) in latest.items():
+            for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "condition").order_by(Annotation.id)):
+                w.writerow([pid, ck, s.id, an.key, an.value])
+    elif name == "new_brands":   # 辞書に無かったブランド（辞書更新の材料）
+        w.writerow(["category", "submission_id", "rank", "brand"])
+        for (pid, ck), (s, t, c) in latest.items():
+            for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "new_brand").order_by(Annotation.id)):
+                w.writerow([ck, s.id, an.key, an.value])
     else:
         raise HTTPException(404)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={name}.csv"})
