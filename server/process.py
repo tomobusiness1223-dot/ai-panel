@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .db import SessionLocal, Submission, Topic, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
 from pipeline.fetch import fetch_sync
 from pipeline.share_html import fetch_share_html
-from pipeline.extract import match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer
+from pipeline.extract import EXTRACT_VERSION, match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer
 from pipeline.redact import redact
 from pipeline import llm
 
@@ -80,12 +80,14 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
         used_search = any(m.has_citation for m in res.messages if m.role == "assistant")
         resp = Response(submission_id=sub.id, used_search=used_search, raw_text_ref=raw_ref,
                         redacted_text=redact(mr.answer, names), message_count=len(res.messages),
-                        extract_status="ok" if any(f.mention_type == "recommended" for f in found) else "none")
+                        extract_status="ok" if any(f.mention_type == "recommended" for f in found) else "none",
+                        extract_version=EXTRACT_VERSION, answer_note=mr.note)
         db.add(resp); db.flush()
         cv = llm.VERSION if llm.available() else "rules-v0"
         for f in found:
             db.add(Mention(response_id=resp.id, brand_id=f.brand_id, mention_type=f.mention_type,
-                           rank=f.rank if f.mention_type == "recommended" else None, is_numbered=f.is_numbered, classifier_version=cv))
+                           rank=f.rank if f.mention_type == "recommended" else None, is_numbered=f.is_numbered, classifier_version=cv,
+                           product_text=f.product or None, is_primary=f.primary))
         # 個人化の手がかりは、AIからの質問も含めた会話全体で見る（「以前の相談では…」は質問の側に出やすい）
         all_ai = "\n".join(m.text for i, m in enumerate(res.messages) if m.role == "assistant" and i <= max(mr.answer_index, 0))
         lv = llm.classify_personalization(all_ai) or personalization_level(all_ai)

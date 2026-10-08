@@ -95,6 +95,8 @@ class Response(Base):
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     extract_status: Mapped[str] = mapped_column(String(10), default="ok")  # ok / none
     fetched_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+    extract_version: Mapped[str | None] = mapped_column(String(10))  # 抽出ルールの版
+    answer_note: Mapped[str | None] = mapped_column(Text)            # どの回答を使ったか
 
 class Mention(Base):
     __tablename__ = "mention"
@@ -105,6 +107,8 @@ class Mention(Base):
     rank: Mapped[int | None] = mapped_column(Integer)
     is_numbered: Mapped[bool] = mapped_column(Boolean, default=False)
     classifier_version: Mapped[str] = mapped_column(String(20), default="rules-v0")
+    product_text: Mapped[str | None] = mapped_column(Text)           # 回答に書かれていた商品名
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True)   # ブランド単位の集計に使う行（同じブランドの最上位）
 
 class OwnBrand(Base):
     __tablename__ = "own_brand"
@@ -158,3 +162,12 @@ class Source(Base):
 def init_db():
     os.makedirs("data/raw", exist_ok=True)
     Base.metadata.create_all(engine)
+    # 既存の表に、あとから足した列を追加する（create_all は既存の表を変更しないため）
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name not in have:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}'))

@@ -89,6 +89,8 @@ class Found:
     rank: int | None
     is_numbered: bool
     mention_type: str
+    product: str = ""        # 回答に書かれていた商品名（例：「Aujua（オージュア） スムース シャンプー」）
+    primary: bool = True     # そのブランドの代表の行（同じブランドが複数の順位に出たら、最上位だけ True）
 
 def compile_brands(brands: list[tuple]) -> list[tuple]:
     """brands: (id, canonical_name, aliases改行区切り[, maker])。canonical も別名に含める。戻り値は (id, name, pattern, maker)。"""
@@ -124,6 +126,39 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
         if n == expect:
             seq.append((n, s, e)); expect += 1
     return seq
+
+EXTRACT_VERSION = "v3"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+BOLD = re.compile(r"\*\*(.+?)\*\*")
+RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
+
+def _product_text(text: str, start: int, end: int, block: tuple[int, int] | None) -> str:
+    """ブランドが出た位置から、回答に書かれた商品名を取り出す。
+    1) その出現を含む太字 2) 同じ項目の最初の太字（順位だけの太字は除く） 3) 表のセル 4) その行"""
+    ls = text.rfind("\n", 0, start) + 1
+    le = text.find("\n", end); le = len(text) if le < 0 else le
+    line = text[ls:le]
+    for m in BOLD.finditer(line):
+        if ls + m.start() <= start and end <= ls + m.end():
+            return _tidy(m.group(1))
+    if re.match(r"\s*(#{1,6}\s|(?:[-・*\s]*)(?:\d{1,2}[.．)）、:：]|[①-⑩]|(?:第)?\d{1,2}\s*位))", line) and "|" not in line:
+        return _tidy(line)          # 見出し・番号つきの行に書かれている場合は、その行が商品名
+    if block and "|" not in line:
+        for m in BOLD.finditer(text[block[0]:block[1]]):
+            seg = m.group(1)
+            if not RANK_ONLY.match(seg) and len(seg) <= 80 and block[0] + m.start() <= start + 200:
+                return _tidy(seg)
+    if "|" in line:
+        pos = 0
+        for cell in line.split("|"):
+            if pos <= start - ls <= pos + len(cell):
+                return _tidy(cell)
+            pos += len(cell) + 1
+    return _tidy(line)
+
+def _tidy(s: str) -> str:
+    s = re.sub(r"[*#`]", "", s)
+    s = re.sub(r"^\s*(?:[-・\s|]*)(?:\d{1,2}[.．)）、:：]|[①-⑩]|(?:第)?\d{1,2}\s*位)[\s｜|:：・·\-–—は]*", "", s)
+    return re.sub(r"\s+", " ", s).strip()[:80]
 
 def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     """本文からブランドを拾い、順位と言及の種類を付ける。
@@ -164,16 +199,18 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     for o in occ:
         mi = INLINE_RANK.search(text[max(0, o[0] - 14):o[0]])
         if mi and not is_negative(o):
-            head[int(mi.group(1))] = o
-    # 4) ブランドごとに1件にまとめる
+            head.setdefault(int(mi.group(1)), o)   # 項目として書かれた順位があれば、そちらを優先
+    # 4) 順位つきの項目は1項目＝1行（同じブランドが別商品で複数の順位に出ることがある）
+    block_span = {n: (s, e_) for n, s, e_ in blocks}
     found: list[Found] = []
-    ranked: dict[str, tuple[int, tuple]] = {}
-    for n, o in sorted(head.items()):
-        ranked.setdefault(o[2], (n, o))
-    head_names_by_block = {n: o[2] for n, o in head.items()}
     seen = set()
-    for name, (n, o) in ranked.items():
-        found.append(Found(ids[name], name, o[0], n, True, "recommended")); seen.add(name)
+    head_names_by_block = {n: o[2] for n, o in head.items()}
+    ranked_names = set()
+    for n, o in sorted(head.items()):
+        name = o[2]
+        found.append(Found(ids[name], name, o[0], n, True, "recommended",
+                           product=_product_text(text, o[0], o[1], block_span.get(n)), primary=name not in ranked_names))
+        ranked_names.add(name); seen.add(name)
     for o in occ:
         name = o[2]
         if name in seen:
@@ -181,14 +218,13 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
         seen.add(name)
         mtype = "negative" if is_negative(o) else "recommended"
         if mtype == "recommended":
-            # どの出現でも、同じ項目の先頭ブランドのメーカーなら「メーカー名の表記」として数えない
-            n = block_of(o[0])
-            h = head_names_by_block.get(n)
+            # 同じ項目の先頭ブランドのメーカーなら「メーカー名の表記」として数えない
+            h = head_names_by_block.get(block_of(o[0]))
             if h and makers.get(h) == name:
                 mtype = "compared"
-            elif any(makers.get(r) == name for r in ranked) and not blocks:
+            elif any(makers.get(r) == name for r in ranked_names) and not blocks:
                 mtype = "compared"
-        found.append(Found(ids[name], name, o[0], None, False, mtype))
+        found.append(Found(ids[name], name, o[0], None, False, mtype, product=_product_text(text, o[0], o[1], None)))
     if mention_classifier:
         found = mention_classifier(text, found)
     # 5) 番号なしの推薦は、番号つきの後ろに初出順で並べる
@@ -201,25 +237,22 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
         f.rank = next_rank; next_rank += 1
     return found
 
-def pick_dialog_answer(messages: list[Message], compiled, min_brands: int = 4) -> tuple[str, int, str]:
-    """ヒアリングありの会話で、分析に使う回答を選ぶ。
-    おすすめの一覧（推薦ブランドが min_brands 以上）を含む assistant 回答のうち最後のもの。
-    一覧のあとに深掘りの質問が続いた会話（配分の試算など）で、最後の回答が一覧でなくなる場合に備える。"""
-    best, best_n, last = None, -1, None
+def pick_dialog_answer(messages: list[Message], compiled) -> tuple[str, int, str]:
+    """ヒアリングありの会話で、分析に使う回答＝会話の結論を選ぶ。
+    推薦ブランドを1つ以上含む assistant 回答のうち、最後のもの（途中の一覧は conversation_turn に残る）。"""
+    best, n_lists = None, 0
     for i, m in enumerate(messages):
         if m.role != "assistant":
             continue
-        n = sum(1 for f in extract_brands(m.text, compiled) if f.mention_type == "recommended")
-        last = (m.text, i)
-        if n >= min_brands:
-            best, best_n = (m.text, i), n
-        elif best is None or (best_n < min_brands and n > best_n):
-            best, best_n = (m.text, i), n
+        n = sum(1 for f in extract_brands(m.text, compiled) if f.mention_type == "recommended" and f.primary)
+        if n >= 1:
+            best = (m.text, i, n); n_lists += 1
     if best is None:
-        return ("", -1, "回答なし")
-    note = "一覧を含む最後の回答を使用" if best_n >= min_brands else f"一覧が見つからず、推薦が最も多い回答を使用（{best_n}件）"
-    if last and best[1] != last[1]:
-        note += "（そのあとに追加のやり取りあり）"
+        last = [(m.text, i) for i, m in enumerate(messages) if m.role == "assistant"]
+        return (last[-1][0], last[-1][1], "推薦を含む回答なし。最後の回答を使用") if last else ("", -1, "回答なし")
+    note = f"最後の推薦つき回答を使用（推薦{best[2]}件）"
+    if n_lists > 1:
+        note += f"。途中にも推薦つきの回答が{n_lists - 1}件あり"
     return (best[0], best[1], note)
 
 # ---- 個人化の手がかり（規則版。LLM版は classifier_version を変えて置き換える） ----

@@ -96,6 +96,16 @@ def test_pick_dialog_answer():
     from pipeline.extract import pick_dialog_answer
     comp = compile_brands([(i, n, "") for i, n in enumerate(["A社", "B社", "C社", "D社", "E社"])])
     msgs = [Message("user", "q"), Message("assistant", "質問です"), Message("user", "答え"),
-            Message("assistant", "1. A社\n2. B社\n3. C社\n4. D社\n5. E社"), Message("user", "配分は？"), Message("assistant", "A社に7割、B社に3割")]
+            Message("assistant", "1. A社\n2. B社\n3. C社\n4. D社\n5. E社"), Message("user", "配分は？"), Message("assistant", "最終提案\n1. **A社 プラチナ**に7割\n2. **B社 ゴールド**に3割"), Message("user", "ありがとう"), Message("assistant", "どういたしまして")]
     ans, idx, note = pick_dialog_answer(msgs, comp)
-    assert idx == 3 and "追加のやり取り" in note
+    assert idx == 5 and "途中にも" in note   # 会話の結論（最後の推薦つき回答）
+
+def test_product_text_and_same_brand_twice():
+    comp = compile_brands([(1, "ミルボン", "Aujua\nオージュア"), (2, "THE ANSWER", ""), (3, "ノブ", "NOV")])
+    txt = "| **1位** | **Aujua（オージュア） スムース シャンプー** | 軽い |\n| **2位** | **花王 THE ANSWER シャンプー C1-01** | 補修 |\n| **3位** | **Aujua フィルメロウ シャンプー** | 熱 |"
+    fs = sorted([f for f in extract_brands(txt, comp) if f.mention_type == "recommended"], key=lambda f: f.rank)
+    assert [(f.rank, f.name, f.product, f.primary) for f in fs] == [
+        (1, "ミルボン", "Aujua（オージュア） スムース シャンプー", True), (2, "THE ANSWER", "花王 THE ANSWER シャンプー C1-01", True), (3, "ミルボン", "Aujua フィルメロウ シャンプー", False)]
+    card = "1位｜敏感肌向け\n**AC フェイスローション**\nNOV（ノブ）｜120mL"
+    f = [x for x in extract_brands(card, comp) if x.name == "ノブ"][0]
+    assert f.rank == 1 and f.product == "AC フェイスローション"

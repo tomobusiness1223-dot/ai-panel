@@ -170,7 +170,7 @@ def submission(sid: int, uid: str = Depends(line_user_id), db: Session = Depends
     if s.accept_status in ("accepted", "reference"):
         r = db.scalar(select(Response).where(Response.submission_id == s.id))
         ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)).all()
-        out["brands"] = [b.canonical_name for m, b in ms]
+        out["brands"] = [(m.product_text or b.canonical_name) for m, b in ms]
     return out
 
 # ---------- 運営用 ----------
@@ -229,8 +229,14 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         w.writerow(["person_id", "category", "brand", "rank"])
         for (pid, ck), (s, t, c) in latest.items():
             r = db.scalar(select(Response).where(Response.submission_id == s.id))
-            for m, b in db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)):
+            for m, b in db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended", Mention.is_primary.is_not(False)).order_by(Mention.rank)):
                 w.writerow([pid, ck, b.canonical_name, m.rank])
+    elif name == "products":   # 商品単位（同じブランドの別商品も1行ずつ）
+        w.writerow(["person_id", "category", "rank", "brand", "product", "is_numbered"])
+        for (pid, ck), (s, t, c) in latest.items():
+            r = db.scalar(select(Response).where(Response.submission_id == s.id))
+            for m, b in db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)):
+                w.writerow([pid, ck, m.rank, b.canonical_name, m.product_text or "", int(m.is_numbered)])
     elif name == "own_brand":
         w.writerow(["person_id", "category", "brand", "raw_text"])
         for (pid, ck), (s, t, c) in latest.items():
