@@ -32,6 +32,7 @@ class Message:
     text: str
     has_citation: bool = False
     widget_text: str = ""
+    sources: list = dataclasses.field(default_factory=list)   # 参照元 [{domain, url, title}]
 
 @dataclasses.dataclass
 class FetchResult:

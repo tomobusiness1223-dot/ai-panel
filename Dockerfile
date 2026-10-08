@@ -4,4 +4,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV DEV_MODE=0 PORT=8000
-CMD ["sh", "-c", "python seed.py && uvicorn server.app:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "python seed.py && python -m server.backfill --all && uvicorn server.app:app --host 0.0.0.0 --port ${PORT}"]

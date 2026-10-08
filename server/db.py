@@ -131,6 +131,28 @@ class PointLedger(Base):
     ref_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
+class ConversationTurn(Base):
+    """提出された会話の全発言（伏字済み）。結果に至るまでのやり取りを残す。"""
+    __tablename__ = "conversation_turn"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True)
+    idx: Mapped[int] = mapped_column(Integer)                        # 会話内の順番（0始まり）
+    role: Mapped[str] = mapped_column(String(10))                    # user / assistant
+    kind: Mapped[str] = mapped_column(String(15))                    # prompt（指定の質問）/ hearing（AIからの質問）/ reply（参加者の答え）/ answer（分析に使う回答）/ other
+    redacted_text: Mapped[str] = mapped_column(Text)
+    n_sources: Mapped[int] = mapped_column(Integer, default=0)
+
+class Source(Base):
+    """回答が参照したウェブページ（何をもとに推薦したか）。"""
+    __tablename__ = "source"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True)
+    turn_idx: Mapped[int] = mapped_column(Integer)
+    is_answer_turn: Mapped[bool] = mapped_column(Boolean, default=False)
+    domain: Mapped[str] = mapped_column(String(120), index=True)
+    url: Mapped[str] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+
 # follow_up（購買追跡）はテスト範囲では作らない。仕様書4章の列定義を本番段階で追加する。
 
 def init_db():

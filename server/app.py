@@ -15,7 +15,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 import httpx
 from .db import (SessionLocal, init_db, Panelist, PanelistAttribute, Category, Brand, Topic, Submission,
-                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, now)
+                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now)
 from .process import process_submission
 from pipeline.fetch import classify_link
 
@@ -63,7 +63,9 @@ def get_panelist(db: Session, uid: str) -> Panelist | None:
 def health(db: Session = Depends(get_db)):
     """稼働確認用。件数だけ返す（個人の情報は含まない）。"""
     return {"ok": True, "panelists": db.scalar(select(func.count(Panelist.id))), "submissions": db.scalar(select(func.count(Submission.id))),
-            "accepted": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status.in_(["accepted", "reference"])))}
+            "accepted": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status.in_(["accepted", "reference"]))),
+            "turns": db.scalar(select(func.count(ConversationTurn.id))), "sources": db.scalar(select(func.count(Source.id))),
+            "mentions": db.scalar(select(func.count(Mention.id)).where(Mention.mention_type == "recommended"))}
 
 # ---------- 画面用 ----------
 @app.get("/api/config")
@@ -235,6 +237,16 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
             for ob in db.scalars(select(OwnBrand).where(OwnBrand.submission_id == s.id)):
                 b = db.get(Brand, ob.brand_id) if ob.brand_id else None
                 w.writerow([pid, ck, b.canonical_name if b else "", ob.raw_text])
+    elif name == "turns":      # 結果に至るまでの会話（伏字済み）
+        w.writerow(["person_id", "category", "submission_id", "idx", "role", "kind", "n_sources", "text"])
+        for (pid, ck), (s, t, c) in latest.items():
+            for tn in db.scalars(select(ConversationTurn).where(ConversationTurn.submission_id == s.id).order_by(ConversationTurn.idx)):
+                w.writerow([pid, ck, s.id, tn.idx, tn.role, tn.kind, tn.n_sources, tn.redacted_text])
+    elif name == "sources":    # 何をもとに推薦したか（参照元）
+        w.writerow(["person_id", "category", "submission_id", "turn_idx", "is_answer_turn", "domain", "url", "title"])
+        for (pid, ck), (s, t, c) in latest.items():
+            for sc in db.scalars(select(Source).where(Source.submission_id == s.id).order_by(Source.turn_idx, Source.id)):
+                w.writerow([pid, ck, s.id, sc.turn_idx, int(sc.is_answer_turn), sc.domain, sc.url, sc.title or ""])
     else:
         raise HTTPException(404)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={name}.csv"})

@@ -47,7 +47,7 @@ def test_brands():
     f = {x.name: x for x in extract_brands(A, comp)}
     assert [f[n].rank for n in ["YOLU", "BOTANIST", "ミノン", "いち髪", "&honey"]] == [1, 2, 3, 4, 5]
     assert f["h&s"].mention_type == "negative" and f["h&s"].rank is None
-    assert f["キュレル"].mention_type == "recommended" and f["キュレル"].rank == 6  # 番号付き項目内だが先頭ではないので番号なし扱いにはならない
+    assert f["キュレル"].mention_type == "recommended" and f["キュレル"].rank == 6  # 同じ項目の2つ目は番号なし（末尾に付く）
 
 def test_boundary_and_carousel():
     comp = compile_brands([(1, "ラックス", "LUX"), (2, "COTA", "コタ"), (3, "YOLU", "ヨル"), (4, "haru", "")])
@@ -70,3 +70,32 @@ def test_turbo_stream_decode():
     assert _decode(arr) == {"a": "x", "b": [1, True, None]}
     arr2 = [{"_1": 2}, "d", ["D", "2026-01-01"]]
     assert _decode(arr2) == {"d": "2026-01-01"}
+
+
+def test_cards_inline_rank_and_maker():
+    from pipeline.share_html import clean_markup
+    raw = """## ランキング
+<box gap={3}>
+  <text size="xs">1位｜総合評価で第一候補</text>
+  **<Entity ref="p0" category="product" value={p0.title}/>**
+  <text size="xs">資生堂｜125mL</text>
+  敏感肌向け。<Cite refs={["a"]}/>
+  <divider/>
+  <text size="xs">2位｜ニキビ向け</text>
+  **<Entity ref="p1" category="product" value="NOV ACアクティブ"/>**
+</box>
+4位は**ミノン アミノモイスト**、5位は**イハダ 薬用ローション**で据え置きます。"""
+    txt = clean_markup(raw, {"p0": {"title": "dプログラム アクネケア ローション"}})
+    assert "<" not in txt and "dプログラム アクネケア" in txt
+    comp = compile_brands([(1, "d プログラム", "dプログラム", "資生堂"), (2, "資生堂", "", None), (3, "ノブ", "NOV", None), (4, "ミノン", "", None), (5, "イハダ", "", "資生堂")])
+    f = {x.name: x for x in extract_brands(txt, comp)}
+    assert (f["d プログラム"].rank, f["ノブ"].rank, f["ミノン"].rank, f["イハダ"].rank) == (1, 2, 4, 5)
+    assert f["資生堂"].mention_type == "compared"
+
+def test_pick_dialog_answer():
+    from pipeline.extract import pick_dialog_answer
+    comp = compile_brands([(i, n, "") for i, n in enumerate(["A社", "B社", "C社", "D社", "E社"])])
+    msgs = [Message("user", "q"), Message("assistant", "質問です"), Message("user", "答え"),
+            Message("assistant", "1. A社\n2. B社\n3. C社\n4. D社\n5. E社"), Message("user", "配分は？"), Message("assistant", "A社に7割、B社に3割")]
+    ans, idx, note = pick_dialog_answer(msgs, comp)
+    assert idx == 3 and "追加のやり取り" in note

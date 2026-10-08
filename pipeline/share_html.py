@@ -74,7 +74,52 @@ def parse_share_html(html: str) -> dict | None:
                     return {"post_messages": msgs, "title": post.get("text") or ""}
     return None
 
-def _message_to_text(m: dict) -> tuple[str, str, bool] | None:
+TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>")
+ENTITY = re.compile(r"<Entity\b([^<>]*)/?>")
+
+def collect_bindings(data: dict) -> dict:
+    """商品カードの参照（turnNNNproductN）→ 商品情報。会話内のどの発言に付いていても拾う。"""
+    out = {}
+    for node in (data.get("mapping") or {}).values():
+        meta = ((node or {}).get("message") or {}).get("metadata") or {}
+        b = (((meta.get("model_dil_v2") or {}).get("appData") or {}).get("opGenui") or {}).get("modelDataBindings")
+        if isinstance(b, dict):
+            out.update({k: v for k, v in b.items() if isinstance(v, dict)})
+    return out
+
+def clean_markup(text: str, bindings: dict | None = None) -> str:
+    """ChatGPT の表示用タグ（<box> <text> <Entity> <Cite> など）を外し、商品名を埋め戻す。"""
+    bindings = bindings or {}
+    def ent(m):
+        attrs = m.group(1)
+        v = re.search(r'value="([^"]*)"', attrs)
+        if v:
+            return v.group(1)
+        r = re.search(r"value=\{([A-Za-z0-9_]+)\.title\}", attrs) or re.search(r'ref="([A-Za-z0-9_]+)"', attrs)
+        if r and r.group(1) in bindings:
+            return str(bindings[r.group(1)].get("title") or "")
+        return ""
+    t = ENTITY.sub(ent, text)
+    t = TAG.sub("", t)
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n[ \t]+", "\n", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+def _sources(meta: dict) -> list[dict]:
+    """その発言が検索で参照したページ（ドメイン・URL・題名）。"""
+    out, seen = [], set()
+    for g in meta.get("search_result_groups") or []:
+        if not isinstance(g, dict):
+            continue
+        for en in g.get("entries") or []:
+            url = (en or {}).get("url") or ""
+            if not url.startswith("http") or url in seen:
+                continue
+            seen.add(url)
+            out.append({"domain": g.get("domain") or httpx.URL(url).host, "url": url.split("?utm_source=")[0], "title": ((en.get("title") or "")[:200])})
+    return out
+
+def _message_to_text(m: dict, bindings: dict | None = None) -> tuple[str, str, bool] | None:
     role = ((m.get("author") or {}).get("role")) or ""
     if role not in ("user", "assistant"):
         return None
@@ -88,7 +133,18 @@ def _message_to_text(m: dict) -> tuple[str, str, bool] | None:
     if not text:
         return None
     has_cite = bool(meta.get("citations") or meta.get("content_references") or meta.get("search_result_groups"))
-    text = re.sub(r"[\ue000-\uf8ff][^\ue000-\uf8ff]{0,200}?[\ue000-\uf8ff]", "", text)
+    # 本文に埋め込まれた制御マーカー：\ue200 種類 \ue202 中身 \ue201（引用 cite、商品カルーセル products など）
+    if "\ue200" in text:
+        if "\ue200cite" in text:
+            has_cite = True
+        text = re.sub(r"\ue200[^\ue200-\ue202]*(?:\ue202[^\ue200\ue201]*)*\ue201", "", text, flags=re.S)
+    text = re.sub(r"[\ue000-\uf8ff]", "", text)
+    if role == "assistant":
+        if "<Cite" in text:
+            has_cite = True
+        text = clean_markup(text, bindings)
+    if not text:
+        return None
     return role, text, has_cite
 
 def messages_from_data(data: dict) -> list[Message]:
@@ -100,6 +156,7 @@ def messages_from_data(data: dict) -> list[Message]:
                 out.append(Message(*r))
         return out
     mapping = data.get("mapping") or {}
+    bindings = collect_bindings(data)
     # current_node から親をたどって順番を復元。無ければ create_time 順
     order = []
     node = data.get("current_node")
@@ -110,21 +167,39 @@ def messages_from_data(data: dict) -> list[Message]:
     if not order:
         order = sorted(mapping, key=lambda k: (mapping[k].get("message") or {}).get("create_time") or 0)
     msgs = []
+    pending_sources: list[dict] = []   # 検索の途中経過（本文なしの発言）に付いた参照元は、次の回答に付ける
     for nid in order:
         m = (mapping.get(nid) or {}).get("message")
         if not m:
             continue
-        r = _message_to_text(m)
+        role = ((m.get("author") or {}).get("role")) or ""
+        src = _sources(m.get("metadata") or {}) if role in ("assistant", "tool") else []
+        r = _message_to_text(m, bindings)
         if r:
-            msgs.append(Message(*r))
-    # 連続する assistant の発言（検索の途中経過など）は、質問への答えとして最後のものを残すのではなく結合
+            msg = Message(*r)
+            msg.sources = pending_sources + src if role == "assistant" else []
+            if role == "assistant":
+                pending_sources = []
+            msgs.append(msg)
+        else:
+            pending_sources += src
+    # 連続する assistant の発言（検索の途中経過など）は1つにまとめる
     merged: list[Message] = []
     for m in msgs:
         if merged and merged[-1].role == m.role == "assistant":
             merged[-1].text += "\n" + m.text
             merged[-1].has_citation = merged[-1].has_citation or m.has_citation
+            merged[-1].sources += m.sources
         else:
-            merged.append(Message(m.role, m.text, m.has_citation))
+            merged.append(m)
+    for m in merged:   # 重複を除く
+        seen, uniq = set(), []
+        for x in m.sources:
+            if x["url"] not in seen:
+                seen.add(x["url"]); uniq.append(x)
+        m.sources = uniq
+        if uniq:
+            m.has_citation = True
     return merged
 
 def fetch_share_html(url: str, timeout: float = 30) -> FetchResult:
