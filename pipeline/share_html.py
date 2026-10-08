@@ -202,20 +202,32 @@ def messages_from_data(data: dict) -> list[Message]:
             m.has_citation = True
     return merged
 
-def fetch_share_html(url: str, timeout: float = 30) -> FetchResult:
-    try:
-        r = httpx.get(url, headers={"User-Agent": UA, "Accept-Language": "ja,en;q=0.8"}, follow_redirects=True, timeout=timeout)
-    except Exception as e:
-        return FetchResult("error", [], error=f"http: {type(e).__name__}: {str(e)[:200]}")
-    final = str(r.url)
-    if r.status_code != 200:
-        return FetchResult("invalid", [], final, error=f"http {r.status_code}")
-    if httpx.URL(final).path in ("", "/"):
-        return FetchResult("invalid", [], final, error="redirected to top")
-    data = parse_share_html(r.text)
-    if not data:
-        return FetchResult("error", [], final, error="no embedded data")
-    msgs = messages_from_data(data)
-    if not msgs:
-        return FetchResult("invalid", [], final, error="no messages in data")
-    return FetchResult("ok", msgs, final, data.get("title") or "", r.text)
+def fetch_share_html(url: str, timeout: float = 30, tries: int = 3) -> FetchResult:
+    """一時的な失敗（5xx・429・通信エラー）は間をあけて再試行する。404 とトップへの転送だけを「無効なリンク」とする。"""
+    import time
+    last = FetchResult("error", [], error="not tried")
+    for attempt in range(tries):
+        if attempt:
+            time.sleep(2 * attempt)
+        try:
+            r = httpx.get(url, headers={"User-Agent": UA, "Accept-Language": "ja,en;q=0.8"}, follow_redirects=True, timeout=timeout)
+        except Exception as e:
+            last = FetchResult("error", [], error=f"http: {type(e).__name__}: {str(e)[:200]}")
+            continue
+        final = str(r.url)
+        if r.status_code in (404, 410):
+            return FetchResult("invalid", [], final, error=f"http {r.status_code}")
+        if r.status_code != 200:
+            last = FetchResult("error", [], final, error=f"http {r.status_code}")
+            continue
+        if httpx.URL(final).path in ("", "/"):
+            return FetchResult("invalid", [], final, error="redirected to top")
+        data = parse_share_html(r.text)
+        if not data:
+            last = FetchResult("error", [], final, error="no embedded data")
+            continue
+        msgs = messages_from_data(data)
+        if not msgs:
+            return FetchResult("invalid", [], final, error="no messages in data")
+        return FetchResult("ok", msgs, final, data.get("title") or "", r.text)
+    return last

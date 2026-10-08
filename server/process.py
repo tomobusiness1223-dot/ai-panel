@@ -108,8 +108,9 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
         db.commit()
     except Exception as e:
         db.rollback()
+        print(f"[process] sub={sub_id} exception {type(e).__name__}: {str(e)[:300]}", flush=True)
         sub = db.get(Submission, sub_id)
-        if sub:
+        if sub and not reprocess:   # 作り直し中の失敗では、受付済みの状態を変えない
             sub.fetch_status, sub.accept_status, sub.reject_reason = "error", "rejected", REJECT_TEXT["error"] + f"（{type(e).__name__}）"
             db.commit()
     finally:
