@@ -1,6 +1,7 @@
 """運営用：注釈の取り出しと書き戻し（サブスク内の Claude でまとめて処理する運用）。
 
   python tools/annotate.py pull          → work/pending.json に、注釈がまだ無い提出（伏字済みの会話つき）を保存
+  python tools/annotate.py prefill       → 規則で取れる条件を work/annotations.json に下書き
   python tools/annotate.py push          → work/annotations.json を本番に書き戻す
   python tools/annotate.py export NAME   → work/NAME.csv（participants / mentions / products / turns / sources / conditions / new_brands ...）
 
@@ -37,6 +38,21 @@ def main():
         r = httpx.get(f"{BASE}/api/admin/export/{name}", params={"token": token(), "scope": sys.argv[3] if len(sys.argv) > 3 else "wide"}, timeout=120)
         r.raise_for_status(); (WORK / f"{name}.csv").write_text(r.text)
         print(f"work/{name}.csv: {max(0, r.text.count(chr(10)) - 1)} 行")
+    elif cmd == "prefill":
+        # 規則で取れる分（選択式フォームの答え＝「項目：値。」）を下書きにする。残りは人（Claude）が読んで足す
+        sys.path.insert(0, str(ROOT))
+        from pipeline.extract import conditions_from_reply
+        d = json.loads((WORK / "pending.json").read_text())
+        items = []
+        for it in d["items"]:
+            seen = {}
+            for t in it["turns"]:
+                if t["kind"] == "reply":
+                    for k, v in conditions_from_reply(t["text"]):
+                        seen[k] = v      # 同じ項目は後の答えで上書き
+            items += [{"submission_id": it["submission_id"], "kind": "condition", "key": k, "value": v} for k, v in seen.items()]
+        (WORK / "annotations.json").write_text(json.dumps({"version": d["version"], "items": items, "done_submission_ids": [it["submission_id"] for it in d["items"]]}, ensure_ascii=False, indent=1))
+        print(f"下書き: 条件 {len(items)} 件を work/annotations.json に保存")
     else:
         print(__doc__)
 

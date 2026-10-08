@@ -236,7 +236,7 @@ def admin_annotations(body: AnnotationsIn, token: str, db: Session = Depends(get
         db.query(Annotation).filter_by(submission_id=sid, version=body.version).delete()
         db.add(Annotation(submission_id=sid, kind="done", key="", value="", version=body.version))
     for i in body.items:
-        if i.kind not in ("condition", "product", "new_brand", "personalization"):
+        if i.kind not in ("condition", "criterion", "product", "new_brand", "personalization"):
             raise HTTPException(422, f"kind が不正です: {i.kind}")
         db.add(Annotation(submission_id=i.submission_id, kind=i.kind, key=i.key[:60], value=i.value, version=body.version))
     db.commit()
@@ -307,6 +307,11 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         w.writerow(["person_id", "category", "submission_id", "key", "value"])
         for (pid, ck), (s, t, c) in latest.items():
             for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "condition").order_by(Annotation.id)):
+                w.writerow([pid, ck, s.id, an.key, an.value])
+    elif name == "criteria":     # AI が示した選定基準（どんな基準で選んだか）
+        w.writerow(["person_id", "category", "submission_id", "order", "criterion"])
+        for (pid, ck), (s, t, c) in latest.items():
+            for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "criterion").order_by(Annotation.id)):
                 w.writerow([pid, ck, s.id, an.key, an.value])
     elif name == "new_brands":   # 辞書に無かったブランド（辞書更新の材料）
         w.writerow(["category", "submission_id", "rank", "brand"])

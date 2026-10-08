@@ -127,7 +127,7 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v3"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+EXTRACT_VERSION = "v4"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 
@@ -276,3 +276,14 @@ def own_brand_lookup(raw: str, compiled) -> int | None:
         if pat.search(s):
             return bid
     return None
+
+
+# ---- ヒアリングの答えから条件を取り出す（選択式フォームの答えは「項目：値。」の並びになる） ----
+COND = re.compile(r"(?:^|[。\n])\s*([^。：:\n]{1,20})[：:]\s*([^。\n]{1,80})(?=。|\n|$)")
+def conditions_from_reply(text: str) -> list[tuple[str, str]]:
+    out = []
+    for m in COND.finditer(text):
+        k, v = m.group(1).strip(), m.group(2).strip()
+        if k and v and not re.search(r"https?$", k):
+            out.append((k, v))
+    return out

@@ -100,7 +100,10 @@ def clean_markup(text: str, bindings: dict | None = None) -> str:
             return str(bindings[r.group(1)].get("title") or "")
         return ""
     t = ENTITY.sub(ent, text)
+    # 入力フォーム（選択式のヒアリング）を動かすためのコード行は本文ではないので外す
+    t = "\n".join(l for l in t.split("\n") if not re.search(r"DIL\.useState|GenUI\.issueNewTurn|^\s*\{[@#/:]|^\s*set[A-Z]\w*\(|=>\s*\(?\{", l))
     t = TAG.sub("", t)
+    t = re.sub(r"\{/?[#@:/][^{}\n]*\}", "", t)
     t = re.sub(r"[ \t]+\n", "\n", t)
     t = re.sub(r"\n[ \t]+", "\n", t)
     return re.sub(r"\n{3,}", "\n\n", t).strip()

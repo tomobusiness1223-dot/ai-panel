@@ -100,7 +100,12 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
             if m.role == "user":
                 kind = "reply" if seen_prompt else "prompt"; seen_prompt = True
             else:
-                kind = "answer" if i == mr.answer_index else ("hearing" if i < mr.answer_index else "other")
+                if i == mr.answer_index:
+                    kind = "answer"
+                elif i < mr.answer_index:   # 結論より前：推薦を含めば途中の一覧、含まなければヒアリング
+                    kind = "interim" if any(f.mention_type == "recommended" for f in extract_brands(m.text, compiled)) else "hearing"
+                else:
+                    kind = "other"
             db.add(ConversationTurn(submission_id=sub.id, idx=i, role=m.role, kind=kind, redacted_text=redact(m.text, names), n_sources=len(m.sources)))
             for sc in m.sources:
                 db.add(Source(submission_id=sub.id, turn_idx=i, is_answer_turn=(i == mr.answer_index), domain=sc["domain"][:120], url=sc["url"], title=sc.get("title")))

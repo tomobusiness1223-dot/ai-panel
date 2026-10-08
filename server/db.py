@@ -159,7 +159,7 @@ class Source(Base):
 
 class Annotation(Base):
     """あとから付ける注釈（運営が Claude でまとめて処理して書き戻す）。提出の作り直し（backfill）では消さない。
-    kind: condition（ヒアリングで分かった条件。key=項目名, value=値）/ product（順位 key の商品名を value に直す）/
+    kind: condition（ヒアリングで分かった条件。key=項目名, value=値）/ criterion（AI が示した選定基準。key=順番, value=基準）/ product（順位 key の商品名を value に直す）/
           new_brand（辞書に無かったブランド。key=順位または空, value=ブランド名）/ personalization（key=level, value=根拠）"""
     __tablename__ = "annotation"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -109,3 +109,13 @@ def test_product_text_and_same_brand_twice():
     card = "1位｜敏感肌向け\n**AC フェイスローション**\nNOV（ノブ）｜120mL"
     f = [x for x in extract_brands(card, comp) if x.name == "ノブ"][0]
     assert f.rank == 1 and f.product == "AC フェイスローション"
+
+
+def test_conditions_and_form_code():
+    from pipeline.extract import conditions_from_reply
+    from pipeline.share_html import clean_markup
+    r = "化粧水の提案用の回答です。肌質：脂性肌。肌悩み：ニキビ・肌荒れ。予算：上限なし。以上を踏まえて教えてください。"
+    assert conditions_from_reply(r) == [("肌質", "脂性肌"), ("肌悩み", "ニキビ・肌荒れ"), ("予算", "上限なし")]
+    raw = '質問です。\n{@body const [skin,setSkin] = DIL.useState("unknown")}\nGenUI.issueNewTurn("x："+skin)}>\n1. 肌質は？\n<radio-group value={skin} onChange={setSkin}>\n脂性肌\n</radio-group>'
+    c = clean_markup(raw)
+    assert "DIL" not in c and "GenUI" not in c and "1. 肌質は？" in c and "脂性肌" in c
