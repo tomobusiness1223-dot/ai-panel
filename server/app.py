@@ -59,6 +59,12 @@ def get_panelist(db: Session, uid: str) -> Panelist | None:
     h = hashlib.sha256(uid.encode()).hexdigest()
     return db.scalar(select(Panelist).where(Panelist.line_user_hash == h))
 
+@app.get("/api/health")
+def health(db: Session = Depends(get_db)):
+    """稼働確認用。件数だけ返す（個人の情報は含まない）。"""
+    return {"ok": True, "panelists": db.scalar(select(func.count(Panelist.id))), "submissions": db.scalar(select(func.count(Submission.id))),
+            "accepted": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status.in_(["accepted", "reference"])))}
+
 # ---------- 画面用 ----------
 @app.get("/api/config")
 def config():
