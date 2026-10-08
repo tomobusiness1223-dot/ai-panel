@@ -103,7 +103,7 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
                 if i == mr.answer_index:
                     kind = "answer"
                 elif i < mr.answer_index:   # 結論より前：推薦を含めば途中の一覧、含まなければヒアリング
-                    kind = "interim" if any(f.mention_type == "recommended" for f in extract_brands(m.text, compiled)) else "hearing"
+                    kind = "interim" if sum(1 for f in extract_brands(m.text, compiled) if f.mention_type == "recommended" and f.is_numbered) >= 2 else "hearing"
                 else:
                     kind = "other"
             db.add(ConversationTurn(submission_id=sub.id, idx=i, role=m.role, kind=kind, redacted_text=redact(m.text, names), n_sources=len(m.sources)))

@@ -74,7 +74,7 @@ def parse_share_html(html: str) -> dict | None:
                     return {"post_messages": msgs, "title": post.get("text") or ""}
     return None
 
-TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*)?/?>")
+TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 ENTITY = re.compile(r"<Entity\b([^<>]*)/?>")
 
 def collect_bindings(data: dict) -> dict:
@@ -101,7 +101,7 @@ def clean_markup(text: str, bindings: dict | None = None) -> str:
         return ""
     t = ENTITY.sub(ent, text)
     # 入力フォーム（選択式のヒアリング）を動かすためのコード行は本文ではないので外す
-    t = "\n".join(l for l in t.split("\n") if not re.search(r"DIL\.useState|GenUI\.issueNewTurn|^\s*\{[@#/:]|^\s*set[A-Z]\w*\(|=>\s*\(?\{", l))
+    t = "\n".join(l for l in t.split("\n") if not re.search(r"DIL\.useState|GenUI\.issueNewTurn|^\s*\{[@#/:]|^\s*set[A-Z]\w*\(|=>", l))
     t = TAG.sub("", t)
     t = re.sub(r"\{/?[#@:/][^{}\n]*\}", "", t)
     t = re.sub(r"[ \t]+\n", "\n", t)
