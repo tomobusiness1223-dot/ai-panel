@@ -92,7 +92,17 @@ function renderRegister(){
   <label>ChatGPTを使う頻度</label><select id="usage_freq"><option value="">選んでください</option><option value="daily">ほぼ毎日</option><option value="weekly_several">週に数回</option><option value="weekly">週1回くらい</option><option value="monthly">月に数回以下</option></select>
   <label>使い始めた時期</label><select id="started_at"><option value="">選んでください</option><option value="lt3m">3か月未満</option><option value="3m_1y">3か月〜1年</option><option value="gt1y">1年以上</option></select>
   <label>主に使う端末</label><select id="device"><option value="">選んでください</option><option value="iphone">iPhone</option><option value="android">Android</option><option value="pc">パソコン</option></select>
-  <div class="radios" style="margin-top:12px"><label><input type="checkbox" id="consent"> 回答の利用目的と個人情報の扱いに同意する</label></div>
+  <details style="margin-top:12px" id="consentbox"><summary style="cursor:pointer;color:var(--accent)">回答の利用目的と個人情報の取り扱い（全文）</summary>
+  <div class="muted" style="font-size:13px;line-height:1.7;margin-top:8px">
+  <p><b>この調査について</b><br>ChatGPT などの AI が、人によってどんな商品やサービスをおすすめするかを調べる調査です。あなたが AI に質問して得た回答を、ほかの参加者の回答と合わせて集計し、企業向けの調査レポートとして利用します。</p>
+  <p><b>お預かりする情報</b><br>登録時の入力（性別、生まれた年、都道府県、同居家族、ChatGPT の利用状況）、提出いただく会話の共有リンクとその内容（AI の質問、あなたの答え、AI の回答、AI が参照したページ）、いま使っているブランドと買い替え予定、LINE のユーザー ID。氏名・電話番号・メールアドレス・住所は収集しません。会話に含まれていた場合は保存前に伏せ字にします。</p>
+  <p><b>利用目的</b><br>(1) 属性別の推薦の集計と企業向けレポートの提供 (2) お題の案内、受付、ポイントの連絡 (3) 調査の仕組みの改善。</p>
+  <p><b>企業に提供する範囲</b><br>人数で集計した結果と、個人を特定できない形に加工した会話の抜粋だけです。LINE の ID、登録情報そのもの、会話の全文は提供しません。</p>
+  <p><b>保存と削除</b><br>会話は名前などを伏せたものを分析に使い、原文は暗号化して一定期間保存後に削除します。参加をやめたいときは LINE で「退会」と送ってください。登録情報と未集計の回答を削除します。集計済みの結果からは個人を取り出せないため削除できません。</p>
+  <p><b>ポイント</b><br>受付できた提出1件につき、お題に表示されたポイントを付与します。受付できなかった提出には付与されません。交換先と条件は事前のお知らせのうえで変更することがあります。</p>
+  <p><b>注意</b><br>共有リンクを作ると、その会話は URL を知っている人が閲覧できる状態になります。他人に見られたくない内容を含む会話は提出しないでください。提出後に会話を削除しても、受付時に保存した内容は上記の期間保持されます。ChatGPT のメモリ機能は OFF にする必要はありません。</p>
+  </div></details>
+  <div class="radios" style="margin-top:8px"><label><input type="checkbox" id="consent"> 上記の利用目的と個人情報の取り扱いに同意する</label></div>
   <button class="btn" id="reg">登録する</button><div id="regmsg"></div></div>`;
   $("#reg").onclick=async()=>{
     const ids=["gender","birth_year","prefecture","household","ai_plan","memory_setting","usage_freq","started_at","device"];
