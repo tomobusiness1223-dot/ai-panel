@@ -2,10 +2,11 @@
 from __future__ import annotations
 import os, json, hashlib
 from sqlalchemy.orm import Session
-from .db import SessionLocal, Submission, Topic, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
+from sqlalchemy import select
+from .db import SessionLocal, Submission, Topic, Category, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
 from pipeline.fetch import fetch_sync
 from pipeline.share_html import fetch_share_html
-from pipeline.extract import EXTRACT_VERSION, match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer
+from pipeline.extract import EXTRACT_VERSION, MatchResult, match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer
 from pipeline.redact import redact
 from pipeline import llm
 
@@ -57,7 +58,18 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
         if res.status != "ok":
             sub.accept_status, sub.reject_reason = "rejected", REJECT_TEXT[res.status]
             db.commit(); return
-        mr = match_prompt(topic.prompt_text, res.messages, mode=topic.mode)
+        if topic.mode == "own":
+            # 系統B：質問文の指定なし。会話全体を使い、結論の回答を分析対象にする
+            mr = MatchResult("own", "", -1, "本人の実会話。質問文の一致判定なし")
+            assistants = [(i, m) for i, m in enumerate(res.messages) if m.role == "assistant"]
+            if assistants:
+                mr.answer, mr.answer_index = assistants[-1][1].text, assistants[-1][0]
+        elif topic.mode == "premise":
+            mr = match_prompt(topic.prompt_text, res.messages, mode="dialog")
+            if mr.status == "followup":
+                mr.status = "dialog"
+        else:
+            mr = match_prompt(topic.prompt_text, res.messages, mode=topic.mode)
         sub.match_status = mr.status
         if reprocess and mr.status in ("modified", "samechat", "fail"):
             db.rollback(); return
@@ -68,9 +80,16 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
         # 保存（原文は暗号化領域、分析には伏字版）
         raw_ref = _save_raw(sub.id, {"url": sub.link_url, "final_url": res.final_url, "title": res.title,
                                      "messages": [m.__dict__ for m in res.messages]})
-        brands = [(b.id, b.canonical_name, b.aliases, b.maker) for b in db.query(Brand).filter_by(category_id=topic.category_id)]
+        cat_id = topic.category_id
+        if topic.mode == "own":
+            # 本人が選んだカテゴリの辞書を使う（お題のカテゴリ名と一致すれば）
+            c = db.scalar(select(Category).where((Category.key == (sub.own_category or "")) | (Category.name == (sub.own_category or ""))))
+            cat_id = c.id if c else None
+        brands = [(b.id, b.canonical_name, b.aliases, b.maker) for b in db.query(Brand).filter_by(category_id=cat_id)] if cat_id else []
         compiled = compile_brands(brands)
-        if mr.status == "dialog":
+        if topic.mode == "premise":
+            compiled = []   # 前提の回答にブランドは数えない
+        if mr.status in ("dialog", "own") and compiled:
             ans, idx, note = pick_dialog_answer(res.messages, compiled)
             if ans:
                 mr.answer, mr.answer_index, mr.note = ans, idx, note
@@ -109,7 +128,7 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
             db.add(ConversationTurn(submission_id=sub.id, idx=i, role=m.role, kind=kind, redacted_text=redact(m.text, names), n_sources=len(m.sources)))
             for sc in m.sources:
                 db.add(Source(submission_id=sub.id, turn_idx=i, is_answer_turn=(i == mr.answer_index), domain=sc["domain"][:120], url=sc["url"], title=sc.get("title")))
-        sub.accept_status = "accepted" if mr.status in ("ok", "typo", "dialog") else "reference"
+        sub.accept_status = "accepted" if mr.status in ("ok", "typo", "dialog", "own") else "reference"
         if not reprocess:
             db.add(PointLedger(panelist_id=sub.panelist_id, delta=topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
         db.commit()

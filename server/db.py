@@ -22,6 +22,7 @@ class Panelist(Base):
     consent_version: Mapped[str] = mapped_column(String(20), default="v1")
     consented_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
     status: Mapped[str] = mapped_column(String(20), default="active")
+    completion_code: Mapped[str | None] = mapped_column(String(10), index=True)   # クラウドワークス等の作業と突合するためのコード
     attributes: Mapped[list["PanelistAttribute"]] = relationship(back_populates="panelist")
 
 class PanelistAttribute(Base):
@@ -67,7 +68,8 @@ class Topic(Base):
     opens_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
     closes_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     point_value: Mapped[int] = mapped_column(Integer, default=30)
-    mode: Mapped[str] = mapped_column(String(10), default="single")   # single（1往復）/ dialog（ヒアリングの往復を認め、最後の回答を使う）
+    mode: Mapped[str] = mapped_column(String(10), default="single")   # single／dialog（ヒアリング往復）／premise（AIが知っている前提を聞く）／own（過去の実会話の提供）
+    required: Mapped[bool] = mapped_column(Boolean, default=True)     # 完了コードの条件に含めるか
 
 class Submission(Base):
     __tablename__ = "submission"
@@ -83,6 +85,7 @@ class Submission(Base):
     reject_reason: Mapped[str | None] = mapped_column(Text)
     own_brand_text: Mapped[str | None] = mapped_column(Text)
     intent: Mapped[str | None] = mapped_column(String(10))           # yes / no / unknown
+    own_category: Mapped[str | None] = mapped_column(String(60))     # 系統B：本人が選んだカテゴリ（その他は自由記述）
 
 class Response(Base):
     __tablename__ = "response"
@@ -134,6 +137,27 @@ class PointLedger(Base):
     ref_table: Mapped[str | None] = mapped_column(String(30))
     ref_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+class SubmissionReaction(Base):
+    """提出直後の反応：読み取った推薦のうち気になった商品、提案を参考にするか。"""
+    __tablename__ = "submission_reaction"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True, unique=True)
+    picked_mention_id: Mapped[int | None] = mapped_column(ForeignKey("mention.id"))
+    picked_none: Mapped[bool] = mapped_column(Boolean, default=False)
+    will_refer: Mapped[str | None] = mapped_column(String(10))       # yes / no / unknown
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
+
+class OwnAnswer(Base):
+    """系統B（過去の実会話）の4問。"""
+    __tablename__ = "own_answer"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    submission_id: Mapped[int] = mapped_column(ForeignKey("submission.id"), index=True, unique=True)
+    outcome: Mapped[str] = mapped_column(String(15))                 # bought / considering / not_bought
+    chosen_text: Mapped[str | None] = mapped_column(Text)            # 買った（選んだ）もの
+    appeal_tags: Mapped[str] = mapped_column(Text, default="")       # カンマ区切り
+    rejection_tags: Mapped[str] = mapped_column(Text, default="")
+    other_text: Mapped[str | None] = mapped_column(Text)
 
 class ConversationTurn(Base):
     """提出された会話の全発言（伏字済み）。結果に至るまでのやり取りを残す。"""

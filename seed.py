@@ -71,9 +71,25 @@ MAKERS = {
  "protein": {"ザバス": "明治", "ウイダー": "森永"},
 }
 
+CLOSED = {"shampoo", "earbuds", "vod"}   # 2回目の収集の対象外。再開するときはここから外して seed を実行
+PREMISE_PROMPT = "買い物の相談をするとき、あなたが参考にしている私の情報を教えてください。"
+SPECIAL = [  # key, 表示名, mode, 質問文, ポイント, 必須
+    ("premise", "AIが知っているあなたの情報", "premise", PREMISE_PROMPT, 30, True),
+    ("own", "AIに相談した買い物", "own", "", 90, False),
+]
+
 def run():
     init_db()
     db = SessionLocal()
+    for key, name, mode, prompt, pts, req in SPECIAL:
+        c = db.scalar(select(Category).where(Category.key == key))
+        if not c:
+            c = Category(key=key, name=name, type="special"); db.add(c); db.flush()
+        t = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1"))
+        if not t:
+            db.add(Topic(category_id=c.id, prompt_text=prompt, prompt_version="v1", point_value=pts, mode=mode, required=req))
+        else:
+            t.mode, t.required, t.point_value, t.prompt_text = mode, req, pts, prompt
     for key, name, cname, unit, ctype in CATEGORIES:
         c = db.scalar(select(Category).where(Category.key == key))
         if not c:
@@ -81,6 +97,9 @@ def run():
         from server.db import now
         for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1", Topic.closes_at.is_(None))):
             t.closes_at = now()  # v1（ヒアリングなし）は締める
+        if key in CLOSED:        # 2回目の収集では出さないカテゴリ（検証実験のもの）
+            for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None))):
+                t.closes_at = now()
         if not db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v2")):
             db.add(Topic(category_id=c.id, prompt_text=PROMPT.format(cat=cname, unit=unit), prompt_version="v2", point_value=30, mode="dialog"))
         have = {b.canonical_name: b for b in db.scalars(select(Brand).where(Brand.category_id == c.id))}

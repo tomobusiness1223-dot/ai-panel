@@ -1,6 +1,6 @@
 """API サーバー（仕様書2章・6章）。LIFF 画面は / で配信。"""
 from __future__ import annotations
-import os, hashlib, datetime as dt, pathlib
+import os, hashlib, datetime as dt, pathlib, secrets, string
 os.chdir(pathlib.Path(__file__).resolve().parent.parent)  # data/ と liff/ を相対パスで使うため
 if os.path.exists(".env"):  # .env の値は、すでにある環境変数を上書きしない
     for _line in open(".env", encoding="utf-8"):
@@ -15,7 +15,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 import httpx
 from .db import (SessionLocal, init_db, Panelist, PanelistAttribute, Category, Brand, Topic, Submission,
-                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, Annotation, now)
+                 Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, Annotation, SubmissionReaction, OwnAnswer, now)
 from .process import process_submission
 from pipeline.fetch import classify_link
 
@@ -66,7 +66,9 @@ def health(db: Session = Depends(get_db)):
             "accepted": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status.in_(["accepted", "reference"]))),
             "turns": db.scalar(select(func.count(ConversationTurn.id))), "sources": db.scalar(select(func.count(Source.id))),
             "mentions": db.scalar(select(func.count(Mention.id)).where(Mention.mention_type == "recommended")),
-            "annotated": db.scalar(select(func.count(Annotation.id)).where(Annotation.kind == "done"))}
+            "annotated": db.scalar(select(func.count(Annotation.id)).where(Annotation.kind == "done")),
+            "reactions": db.scalar(select(func.count(SubmissionReaction.id))), "own": db.scalar(select(func.count(OwnAnswer.id))),
+            "declined": db.scalar(select(func.count(Submission.id)).where(Submission.accept_status == "declined"))}
 
 # ---------- 画面用 ----------
 @app.get("/api/config")
@@ -98,6 +100,8 @@ def register(body: RegisterIn, uid: str = Depends(line_user_id), db: Session = D
     for a in db.scalars(select(PanelistAttribute).where(PanelistAttribute.panelist_id == p.id, PanelistAttribute.valid_to.is_(None))):
         a.valid_to = now()
     db.add(PanelistAttribute(panelist_id=p.id, **body.model_dump(exclude={"consent"})))
+    if not p.completion_code:
+        p.completion_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6))
     db.commit()
     return {"ok": True, "panelist_id": p.id}
 
@@ -109,7 +113,14 @@ def me(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
     attr = db.scalar(select(PanelistAttribute).where(PanelistAttribute.panelist_id == p.id, PanelistAttribute.valid_to.is_(None)))
     points = db.scalar(select(func.coalesce(func.sum(PointLedger.delta), 0)).where(PointLedger.panelist_id == p.id))
     subs = db.scalars(select(Submission).where(Submission.panelist_id == p.id).order_by(Submission.id.desc())).all()
-    return {"registered": True, "panelist_id": p.id, "points": points,
+    t = now()
+    req = db.scalars(select(Topic.id).where(Topic.required.is_(True), Topic.opens_at <= t, (Topic.closes_at.is_(None)) | (Topic.closes_at > t))).all()
+    done_ids = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference", "declined")}
+    all_done = bool(req) and all(tid in done_ids for tid in req)
+    if not p.completion_code:
+        p.completion_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6)); db.commit()
+    return {"registered": True, "panelist_id": p.id, "points": points, "completion_code": p.completion_code if all_done else None,
+            "required_total": len(req), "required_done": sum(1 for tid in req if tid in done_ids),
             "attributes": {k: getattr(attr, k) for k in RegisterIn.model_fields if k != "consent"} if attr else None,
             "submissions": [{"id": s.id, "topic_id": s.topic_id, "accept_status": s.accept_status, "reject_reason": s.reject_reason, "submitted_at": s.submitted_at.isoformat()} for s in subs]}
 
@@ -122,10 +133,10 @@ def topics(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
     done = {}
     if p:
         for s in db.scalars(select(Submission).where(Submission.panelist_id == p.id)):
-            if s.accept_status in ("accepted", "reference", "pending"):
+            if s.accept_status in ("accepted", "reference", "pending", "declined"):
                 done[s.topic_id] = s.accept_status
     return [{"id": tp.id, "category": c.name, "category_key": c.key, "prompt_text": tp.prompt_text, "point_value": tp.point_value,
-             "mode": tp.mode, "status": done.get(tp.id)} for tp, c in rows]
+             "mode": tp.mode, "required": tp.required, "status": done.get(tp.id)} for tp, c in rows]
 
 @app.get("/api/brands")
 def brands(category_key: str, db: Session = Depends(get_db)):
@@ -136,9 +147,16 @@ def brands(category_key: str, db: Session = Depends(get_db)):
 
 class SubmitIn(BaseModel):
     topic_id: int
-    link_url: str
+    link_url: str = ""
     own_brand_text: str | None = None
     intent: str | None = None
+    declined: bool = False                 # 前提のお題：内容を提出しない（ポイントなし。件数だけ数える）
+    own_category: str | None = None        # 系統B
+    outcome: str | None = None             # 系統B：bought / considering / not_bought
+    chosen_text: str | None = None
+    appeal_tags: list[str] = []
+    rejection_tags: list[str] = []
+    other_text: str | None = None
 
 @app.post("/api/submissions")
 def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
@@ -148,16 +166,32 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
     topic = db.get(Topic, body.topic_id)
     if not topic:
         raise HTTPException(404, "お題がありません")
+    if topic.mode != "own":   # 系統B は同じお題に何件でも出せる
+        exists = db.scalar(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == topic.id,
+                                                     Submission.accept_status.in_(["accepted", "reference", "pending", "declined"])))
+        if exists:
+            raise HTTPException(409, "このお題はすでに提出済みです")
+    if body.declined and topic.mode == "premise":
+        s = Submission(panelist_id=p.id, topic_id=topic.id, link_url="", link_type="none", fetch_status="skipped",
+                       match_status="declined", accept_status="declined", reject_reason="本人が提出しないことを選択")
+        db.add(s); db.commit()
+        return {"id": s.id, "status": "declined"}
     link_type, reason = classify_link(body.link_url)
     if reason:
         raise HTTPException(422, reason)
-    exists = db.scalar(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == topic.id,
-                                                 Submission.accept_status.in_(["accepted", "reference", "pending"])))
-    if exists:
-        raise HTTPException(409, "このお題はすでに提出済みです")
+    if topic.mode == "own":
+        if body.outcome not in ("bought", "considering", "not_bought"):
+            raise HTTPException(422, "相談した結果を選んでください")
+        if not (body.own_category or "").strip():
+            raise HTTPException(422, "カテゴリを選んでください")
     s = Submission(panelist_id=p.id, topic_id=topic.id, link_url=body.link_url.strip(), link_type=link_type,
-                   own_brand_text=(body.own_brand_text or "").strip() or None, intent=body.intent)
-    db.add(s); db.commit()
+                   own_brand_text=(body.own_brand_text or "").strip() or None, intent=body.intent,
+                   own_category=(body.own_category or "").strip()[:60] or None)
+    db.add(s); db.flush()
+    if topic.mode == "own":
+        db.add(OwnAnswer(submission_id=s.id, outcome=body.outcome, chosen_text=(body.chosen_text or "").strip() or None,
+                         appeal_tags=",".join(body.appeal_tags), rejection_tags=",".join(body.rejection_tags), other_text=(body.other_text or "").strip() or None))
+    db.commit()
     bg.add_task(process_submission, s.id)
     return {"id": s.id, "status": "pending"}
 
@@ -170,9 +204,29 @@ def submission(sid: int, uid: str = Depends(line_user_id), db: Session = Depends
     out = {"id": s.id, "fetch_status": s.fetch_status, "match_status": s.match_status, "accept_status": s.accept_status, "reject_reason": s.reject_reason}
     if s.accept_status in ("accepted", "reference"):
         r = db.scalar(select(Response).where(Response.submission_id == s.id))
-        ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)).all()
+        ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)).all() if r else []
         out["brands"] = [(m.product_text or b.canonical_name) for m, b in ms]
+        out["mentions"] = [{"id": m.id, "rank": m.rank, "label": (m.product_text or b.canonical_name)} for m, b in ms]
+        out["has_reaction"] = db.scalar(select(SubmissionReaction.id).where(SubmissionReaction.submission_id == s.id)) is not None
     return out
+
+class ReactionIn(BaseModel):
+    picked_mention_id: int | None = None
+    picked_none: bool = False
+    will_refer: str | None = None
+
+@app.post("/api/submissions/{sid}/reaction")
+def reaction(sid: int, body: ReactionIn, uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
+    p = get_panelist(db, uid)
+    s = db.get(Submission, sid)
+    if not s or not p or s.panelist_id != p.id:
+        raise HTTPException(404)
+    if body.will_refer not in ("yes", "no", "unknown"):
+        raise HTTPException(422, "参考にするかを選んでください")
+    db.query(SubmissionReaction).filter_by(submission_id=s.id).delete()
+    db.add(SubmissionReaction(submission_id=s.id, picked_mention_id=body.picked_mention_id, picked_none=body.picked_none or body.picked_mention_id is None, will_refer=body.will_refer))
+    db.commit()
+    return {"ok": True}
 
 # ---------- 運営用 ----------
 def admin(token: str):
@@ -184,6 +238,22 @@ def admin_summary(token: str, db: Session = Depends(get_db)):
     admin(token)
     by = db.execute(select(Submission.accept_status, Submission.match_status, func.count()).group_by(Submission.accept_status, Submission.match_status)).all()
     return {"panelists": db.scalar(select(func.count(Panelist.id))), "submissions": [{"accept": a, "match": m, "n": n} for a, m, n in by]}
+
+@app.get("/api/admin/completions")
+def admin_completions(token: str, db: Session = Depends(get_db)):
+    """完了コード一覧（クラウドワークスの承認に使う）。コード、必須お題の完了数、系統Bの件数。"""
+    admin(token)
+    t = now()
+    req = db.scalars(select(Topic.id).where(Topic.required.is_(True), Topic.opens_at <= t, (Topic.closes_at.is_(None)) | (Topic.closes_at > t))).all()
+    out = []
+    for p in db.scalars(select(Panelist).order_by(Panelist.id)):
+        subs = db.scalars(select(Submission).where(Submission.panelist_id == p.id)).all()
+        done = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference", "declined")}
+        own = sum(1 for s in subs if s.own_category and s.accept_status in ("accepted", "reference"))
+        declined = sum(1 for s in subs if s.accept_status == "declined")
+        out.append({"code": p.completion_code, "panelist_id": p.id, "required_done": sum(1 for r in req if r in done), "required_total": len(req),
+                    "own_submissions": own, "declined": declined, "registered_at": p.consented_at.isoformat()})
+    return out
 
 @app.get("/api/admin/unmapped")
 def admin_unmapped(token: str, db: Session = Depends(get_db)):
@@ -308,6 +378,24 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         for (pid, ck), (s, t, c) in latest.items():
             for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "condition").order_by(Annotation.id)):
                 w.writerow([pid, ck, s.id, an.key, an.value])
+    elif name == "reactions":    # 提出直後の反応
+        w.writerow(["person_id", "category", "submission_id", "picked_rank", "picked_label", "picked_none", "will_refer"])
+        for (pid, ck), (s, t, c) in latest.items():
+            rx = db.scalar(select(SubmissionReaction).where(SubmissionReaction.submission_id == s.id))
+            if not rx: continue
+            m = db.get(Mention, rx.picked_mention_id) if rx.picked_mention_id else None
+            b = db.get(Brand, m.brand_id) if m else None
+            w.writerow([pid, ck, s.id, m.rank if m else "", (m.product_text or b.canonical_name) if m else "", int(rx.picked_none), rx.will_refer or ""])
+    elif name == "own_answers":  # 系統B の4問
+        w.writerow(["person_id", "submission_id", "own_category", "outcome", "chosen_text", "appeal_tags", "rejection_tags", "other_text", "accept_status"])
+        for s in db.scalars(select(Submission).where(Submission.own_category.is_not(None)).order_by(Submission.id)):
+            oa = db.scalar(select(OwnAnswer).where(OwnAnswer.submission_id == s.id))
+            w.writerow([s.panelist_id, s.id, s.own_category, oa.outcome if oa else "", oa.chosen_text if oa else "", oa.appeal_tags if oa else "", oa.rejection_tags if oa else "", oa.other_text if oa else "", s.accept_status])
+    elif name == "premises":     # 前提のお題の回答（伏字済み）と、提出しなかった人
+        w.writerow(["person_id", "submission_id", "accept_status", "text"])
+        for s, t, c in db.execute(select(Submission, Topic, Category).join(Topic, Submission.topic_id == Topic.id).join(Category, Topic.category_id == Category.id).where(Category.key == "premise").order_by(Submission.id)):
+            ans = db.scalar(select(ConversationTurn.redacted_text).where(ConversationTurn.submission_id == s.id, ConversationTurn.kind == "answer"))
+            w.writerow([s.panelist_id, s.id, s.accept_status, ans or ""])
     elif name == "criteria":     # AI が示した選定基準（どんな基準で選んだか）
         w.writerow(["person_id", "category", "submission_id", "order", "criterion"])
         for (pid, ck), (s, t, c) in latest.items():
