@@ -207,4 +207,6 @@ def init_db():
             have = {c["name"] for c in insp.get_columns(table.name)}
             for col in table.columns:
                 if col.name not in have:
-                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}'))
+                    default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                    dflt = "" if default is None else (f" DEFAULT {int(default)}" if isinstance(default, bool) else f" DEFAULT '{default}'" if isinstance(default, str) else f" DEFAULT {default}")
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}{dflt}'))

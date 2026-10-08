@@ -97,9 +97,11 @@ def run():
         from server.db import now
         for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1", Topic.closes_at.is_(None))):
             t.closes_at = now()  # v1（ヒアリングなし）は締める
-        if not db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v2")):
-            db.add(Topic(category_id=c.id, prompt_text=PROMPT.format(cat=cname, unit=unit), prompt_version="v2", point_value=30, mode="dialog"))
-            db.flush()
+        t2 = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v2"))
+        if not t2:
+            t2 = Topic(category_id=c.id, prompt_text=PROMPT.format(cat=cname, unit=unit), prompt_version="v2", point_value=30, mode="dialog")
+            db.add(t2); db.flush()
+        t2.mode, t2.required = "dialog", True   # 列をあとから足したとき（既存行が NULL）に備えて毎回そろえる
         if key in CLOSED:        # 2回目の収集では出さないカテゴリ（検証実験のもの）
             for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None))):
                 t.closes_at = now()
