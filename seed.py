@@ -72,7 +72,7 @@ MAKERS = {
 }
 
 CLOSED = {"shampoo", "earbuds", "vod"}   # 2回目の収集の対象外。再開するときはここから外して seed を実行
-PREMISE_PROMPT = "買い物やサービス選びの相談をするとき、あなたが参考にしている私の情報を教えてください。"   # 「個人情報は書かないで」は入れない（AI が前提を削ってしまい、回収の目的と矛盾する）。保護は伏せ字で行う
+PREMISE_PROMPT = "買い物やサービス選びの相談をするとき、あなたが参考にしている私の情報を教えてください。氏名・住所・勤務先など、個人が特定できる情報は書かないでください。"   # 後半の一文は必須（ユーザー決定）。入れても年齢層・地域・世帯・好みは返り、名前や勤務先だけが出なくなることを実回答で確認済み
 SPECIAL = [  # key, 表示名, mode, 質問文, ポイント, 必須（完了コードの条件）, 再提出できる日数
     ("premise", "AIが知っているあなたの情報", "premise", PREMISE_PROMPT, 30, False, 30),
     ("own", "AIに相談した買い物・サービス選び", "own", "", 90, False, None),
@@ -89,6 +89,10 @@ def run():
         for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None), Topic.prompt_text != prompt)):
             t.closes_at = now()   # 質問文を変えたら旧版は締める（提出済みの記録はそのまま）
         t = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_text == prompt, Topic.closes_at.is_(None)))
+        if not t:   # 同じ質問文の版が締められていれば、それを開け直す（提出済みの記録と30日ルールを引き継ぐ）
+            t = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_text == prompt).order_by(Topic.id.desc()))
+            if t:
+                t.closes_at = None
         if not t:
             ver = "v%d" % (db.scalar(select(func.count(Topic.id)).where(Topic.category_id == c.id)) + 1)
             db.add(Topic(category_id=c.id, prompt_text=prompt, prompt_version=ver, point_value=pts, mode=mode, required=req, resubmit_days=rd))
