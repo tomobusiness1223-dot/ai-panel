@@ -211,7 +211,7 @@ def fetch_share_html(url: str, timeout: float = 30, tries: int = 3) -> FetchResu
     last = FetchResult("error", [], error="not tried")
     for attempt in range(tries):
         if attempt:
-            time.sleep(2 * attempt)
+            time.sleep(3 * attempt)
         try:
             r = httpx.get(url, headers={"User-Agent": UA, "Accept-Language": "ja,en;q=0.8"}, follow_redirects=True, timeout=timeout)
         except Exception as e:
@@ -226,8 +226,9 @@ def fetch_share_html(url: str, timeout: float = 30, tries: int = 3) -> FetchResu
         if httpx.URL(final).path in ("", "/"):
             return FetchResult("invalid", [], final, error="redirected to top")
         data = parse_share_html(r.text)
-        if not data:   # 会話データが無いページ（存在しないリンクなど）。再試行せず、ブラウザでの確認に回す
-            return FetchResult("error", [], final, error="no embedded data")
+        if not data:   # 会話データが無いページ。混雑時の確認ページのこともあるので、間をあけて再試行する
+            last = FetchResult("error", [], final, error="no embedded data")
+            continue
         msgs = messages_from_data(data)
         if not msgs:
             return FetchResult("invalid", [], final, error="no messages in data")

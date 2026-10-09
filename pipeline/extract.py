@@ -19,6 +19,7 @@ class MatchResult:
     answer: str                 # 分析に使う assistant の回答本文
     answer_index: int           # messages 内の位置
     note: str = ""
+    prompt_index: int = -1      # 指定の質問文があった user 発言の位置（s/t_ 形式では -1）
 
 def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> MatchResult:
     """mode="dialog" のお題では、質問文のあとに AI が質問し参加者が答える往復を認め、最後の回答を使う。"""
@@ -54,25 +55,25 @@ def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> 
         if j < 0:
             return MatchResult("fail", "", -1, "質問の後に回答がない")
         if len(users) == 1:
-            return MatchResult(first_k, ans, j)
+            return MatchResult(first_k, ans, j, prompt_index=first_i)
         # 2回目以降のユーザー発言
         second_text = users[1][1].text
         if norm(second_text) in {norm(x) for x in FALLBACK_PROMPTS}:
             j2, ans2 = answer_after(users[1][0])
             # 1回目が質問返しだった場合は2回目の回答を使う（定型文ルール）
-            return MatchResult("fallback", ans2 or ans, j2 if ans2 else j, "定型文を1回送った")
+            return MatchResult("fallback", ans2 or ans, j2 if ans2 else j, "定型文を1回送った", prompt_index=first_i)
         if mode == "dialog":
             # ヒアリングの往復を経た最後の回答を使う
             j_last, m_last = assistants[-1]
-            return MatchResult("dialog", m_last.text, j_last, f"往復あり（ユーザー発言{len(users)}回）。最後の回答を使用")
-        return MatchResult("followup", ans, j, "回答のあとに追加の指示あり。1回目の回答を使用")
+            return MatchResult("dialog", m_last.text, j_last, f"往復あり（ユーザー発言{len(users)}回）。最後の回答を使用", prompt_index=first_i)
+        return MatchResult("followup", ans, j, "回答のあとに追加の指示あり。1回目の回答を使用", prompt_index=first_i)
     if first_k == "modified":
         return MatchResult("modified", "", -1, "質問文に付け足し・変更あり")
     # 1問目が別の質問 → 指定質問が後にあるか
     for i, k in kinds[1:]:
         if k in ("ok", "typo"):
             j, ans = answer_after(i)
-            return MatchResult("samechat", ans, j, "同じチャットで前に別の質問あり")
+            return MatchResult("samechat", ans, j, "同じチャットで前に別の質問あり", prompt_index=i)
     return MatchResult("fail", "", -1, "指定の質問文が見つからない")
 
 # ---- ブランド抽出 ----
@@ -128,7 +129,7 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v9"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+EXTRACT_VERSION = "v10"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 
@@ -256,9 +257,28 @@ def pick_dialog_answer(messages: list[Message], compiled) -> tuple[str, int, str
         note += f"。途中にも推薦つきの回答が{n_lists - 1}件あり"
     return (best[0], best[1], note)
 
-ASKS = re.compile(r"[?？]|教えてください|お聞かせ|お知らせください|選んでください|答えてください|回答していただければ|回答をもらえたら|教えてもらえ|分かれば|どれに近い")
+# 「質問している」の判定（2段階の質問文では、最初の回答の末尾に質問が並ぶ）
+#   質問の形の行（？で終わる／教えてください／ですか 等）が3行以上、または1行以上あって末尾500字に質問か「答えなくても大丈夫」「回答をもとに絞り込みます」のような締めがある
+#   「他にあれば教えてください」のような決まり文句の締めと、「## 結論：何を買うのがよい？」のような見出しは数えない
+Q_LINE = re.compile(r"[?？]\s*[*＊）)]*$|教えてください|教えてもらえ|お聞かせ|お知らせください|選んでください|答えてください|当てはまる|どれに近い|ありますか|ますか[?？]?$|ですか[?？]?$|質問させてください|質問です|質問があります|お聞きしたい|伺いたい|確認させてください")
+OFFER = re.compile(r"^(他に|ほかに|何か|なにか|さらに|もし|必要|ご不明|不明|気になる|ご質問|質問が|いつでも|お気軽)|(他に|ほかに)(も|何か|ご|気になる|知りたい|質問|聞きたい)")
+CLOSING = re.compile(r"答えなくても|分かる範囲|わかる範囲|回答をもとに|回答を基に|回答していただければ|回答をもらえたら|答えてもらえたら|教えてもらえれば|お答えいただければ|分かれば|わかれば|絞り込(?:み|め|ん)|組み直し|ランキングに更新|再提案|改めてランキング|ランキングにします|この回答によって")
 
-def stage_info(messages: list[Message], compiled) -> dict:
+def asks_questions(text: str) -> bool:
+    lines = [l.strip(" \t*＊-・") for l in text.splitlines() if l.strip()]
+    def is_q(l: str) -> bool:
+        if not Q_LINE.search(l):
+            return False
+        if OFFER.search(l) and not re.search(r"質問させて|もう1つ|もう一つ|次の質問|最後の質問", l):
+            return False
+        if l.startswith("#") and not re.search(r"質問|教えて|聞かせ", l):
+            return False
+        return True
+    qs = [l for l in lines if is_q(l)]
+    tail = text[-500:]
+    return len(qs) >= 3 or (len(qs) >= 1 and (bool(CLOSING.search(tail)) or any(l in tail for l in qs)))
+
+def stage_info(messages: list[Message], compiled, prompt_index: int = -1) -> dict:
     """2段階の質問文（先に薦めてから質問）の会話を調べる。
     first＝推薦を含む最初の回答、final＝推薦を含む最後の回答。early＝AI が質問しているのに参加者が答える前に共有された。"""
     recs = []
@@ -267,10 +287,9 @@ def stage_info(messages: list[Message], compiled) -> dict:
             recs.append(i)
     users = [i for i, m in enumerate(messages) if m.role == "user"]
     assistants = [i for i, m in enumerate(messages) if m.role == "assistant"]
-    replied = len(users) >= 2
+    replied = any(i > prompt_index for i in users) if prompt_index >= 0 else len(users) >= 2   # 質問文のあとに参加者の発言があるか
     last_ai = messages[assistants[-1]].text if assistants else ""
-    # 2段階の質問文では、最初の回答の後半に質問が並ぶ。発言のどこかに質問の形が2つ以上あれば「質問している」とみなす
-    asks = len(ASKS.findall(last_ai)) >= 2 or len(ASKS.findall(last_ai[-400:])) >= 1
+    asks = asks_questions(last_ai)
     return {"first": recs[0] if recs else None, "final": recs[-1] if recs else None, "n_stages": len(recs),
             "early": bool(assistants) and not replied and asks}
 

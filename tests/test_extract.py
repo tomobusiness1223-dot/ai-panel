@@ -162,3 +162,13 @@ def test_early_share_detected_when_questions_are_mid_message():
 def test_entity_tag_with_space():
     from pipeline.share_html import clean_markup
     assert clean_markup('第1位　< Entity category="product" value="matsukiyo LAB ソイ"/>') == "第1位　matsukiyo LAB ソイ"
+
+
+def test_asks_questions_rules():
+    from pipeline.extract import asks_questions
+    # 最後に1問だけ聞く
+    assert asks_questions("1. A社\n2. B社\n\nそこで、最後にもう1つだけ質問させてください。\n## 最後の質問：ネットショッピングでは、どのサービスをよく利用しますか？\nA. 楽天市場\nB. Amazon\n\nこの回答によって、第1候補を判断できます。") is True
+    # 結論の見出しに？があるだけの最終回答
+    assert asks_questions("## あなた向けのおすすめ\n1. A社\n2. B社\n\n## 結論：まず何を買うのがよい？\n現時点では A社 が予算に最も合っています。\n\nなお、無理に毎日飲む必要はありません。") is False
+    # 決まり文句の締めだけ
+    assert asks_questions("1. A社\n2. B社\n\n他にも気になる点があれば教えてください。") is False

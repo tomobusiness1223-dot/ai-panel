@@ -29,8 +29,10 @@ def run(all_=False):
         if all_ or not has or r is None or r.extract_version != EXTRACT_VERSION:
             ids.append(s.id)
     db.close()
+    import time
     for i in ids:
         process_submission(i, reprocess=True)
+        time.sleep(1.0)   # 続けて取りに行って混雑時の確認ページを返されないように、少し間をあける
     print(f"backfill: {len(ids)} submissions", flush=True)
 
 if __name__ == "__main__":

@@ -407,6 +407,14 @@ def admin_resume(token: str, bg: BackgroundTasks):
     bg.add_task(resume_pending, 1)
     return {"ok": True}
 
+@app.post("/api/admin/backfill")
+def admin_backfill(token: str, bg: BackgroundTasks, all: int = 0):
+    """読み取り規則や辞書を直したあと、受付済みの提出を作り直す（再デプロイ無しで）。all=1 で全件。"""
+    admin(token)
+    from .backfill import run
+    bg.add_task(run, bool(all))
+    return {"ok": True}
+
 @app.get("/api/admin/import_status")
 def admin_import_status(token: str, source: str = "crowdworks", db: Session = Depends(get_db)):
     """取り込んだ作業IDごとの結果（承認判断用）。"""
@@ -518,11 +526,11 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
             seen.add(pid); a = attr_at(pid, s.submitted_at)
             w.writerow([pid, {"female": "F", "male": "M"}.get(a.gender, "X") if a else "", age_band(a.birth_year) if a else "", a.ai_plan or "" if a else "", a.memory_setting or "" if a else "", a.device or "" if a else ""])
     elif name == "responses":
-        w.writerow(["person_id", "category", "model", "used_search", "device", "match_status", "extract_status", "personalization"])
+        w.writerow(["person_id", "category", "model", "used_search", "device", "match_status", "extract_status", "personalization", "submission_id", "extract_version"])
         for (pid, ck), (s, t, c) in latest.items():
             r = db.scalar(select(Response).where(Response.submission_id == s.id)); a = attr_at(pid, s.submitted_at)
             ps = db.scalar(select(PersonalizationSignal).where(PersonalizationSignal.response_id == r.id)) if r else None
-            w.writerow([pid, ck, "", int(r.used_search) if r else "", a.device if a else "", s.match_status, r.extract_status if r else "", ps.level if ps else ""])
+            w.writerow([pid, ck, "", int(r.used_search) if r else "", a.device if a else "", s.match_status, r.extract_status if r else "", ps.level if ps else "", s.id, r.extract_version if r else ""])
     elif name == "mentions":
         w.writerow(["person_id", "category", "brand", "rank"])
         for (pid, ck), (s, t, c) in latest.items():

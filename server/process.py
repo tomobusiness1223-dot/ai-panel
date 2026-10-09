@@ -101,7 +101,7 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             if ans:
                 mr.answer, mr.answer_index, mr.note = ans, idx, note
             print(f"[process] sub={sub.id} dialog answer_index={idx} note={note}", flush=True)
-        st = stage_info(res.messages, compiled) if (topic.mode == "dialog" and compiled) else None
+        st = stage_info(res.messages, compiled, mr.prompt_index) if (topic.mode == "dialog" and compiled) else None
         if st and st["early"]:
             # AI が質問しているのに、答える前に共有された。LINE ではその場で出し直してもらう。取り込み（クラウドワークス）は出し直せないので参考扱い
             pan = db.get(Panelist, sub.panelist_id)
