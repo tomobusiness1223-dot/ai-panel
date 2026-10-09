@@ -172,3 +172,22 @@ def test_asks_questions_rules():
     assert asks_questions("## あなた向けのおすすめ\n1. A社\n2. B社\n\n## 結論：まず何を買うのがよい？\n現時点では A社 が予算に最も合っています。\n\nなお、無理に毎日飲む必要はありません。") is False
     # 決まり文句の締めだけ
     assert asks_questions("1. A社\n2. B社\n\n他にも気になる点があれば教えてください。") is False
+
+
+def test_enqueue_chunk_with_escaped_quote_and_paren():
+    from pipeline.share_html import _enqueue_chunks
+    import json
+    inner = json.dumps(json.dumps(["x", "foo(\");bar"]))   # 本文に ");  を含む
+    html = "<script>window.__reactRouterContext.streamController.enqueue(" + inner + ");</script>"
+    chunks = _enqueue_chunks(html)
+    assert len(chunks) == 1 and json.loads(json.loads(chunks[0])) == ["x", "foo(\");bar"]
+
+
+def test_inaccessible_share_is_detected():
+    from pipeline.share_html import parse_share_html
+    import json
+    # turbo-stream の最小形：[{"loaderData": {"routes/share.$shareId.($action)": {"serverResponse": {"type": "error", "showInaccessibleToast": True}}}}]
+    arr = [{"_1": 2, "_11": 12}, "loaderData", {"_3": 4}, "routes/share.$shareId.($action)", {"_5": 6}, "serverResponse", {"_7": 8, "_9": 10}, "type", "error", "showInaccessibleToast", True, "errors", None]
+    html = "x.streamController.enqueue(" + json.dumps(json.dumps(arr)) + ");"
+    d = parse_share_html(html)
+    assert d is not None and d.get("inaccessible") is True

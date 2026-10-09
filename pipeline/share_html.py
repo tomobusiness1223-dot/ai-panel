@@ -43,8 +43,27 @@ def _decode(arr):
         return v
     return d(0)
 
+def _enqueue_chunks(html: str) -> list[str]:
+    """streamController.enqueue("…") の中身を、JSON 文字列として正しく（\" を飛ばして）切り出す。
+    会話本文に ");  が含まれると、正規表現の最短一致では途中で切れて「会話データが無い」と誤判定する。"""
+    out, key, i = [], 'streamController.enqueue("', 0
+    while True:
+        j = html.find(key, i)
+        if j < 0:
+            break
+        k = j + len(key); buf = []
+        while k < len(html):
+            ch = html[k]
+            if ch == "\\":
+                buf.append(html[k:k + 2]); k += 2; continue
+            if ch == '"':
+                break
+            buf.append(ch); k += 1
+        out.append('"' + "".join(buf) + '"'); i = k + 1
+    return out
+
 def parse_share_html(html: str) -> dict | None:
-    chunks = re.findall(r'streamController\.enqueue\((".*?")\);', html, flags=re.S)
+    chunks = _enqueue_chunks(html)
     for c in chunks:
         try:
             s = json.loads(c)
@@ -61,9 +80,12 @@ def parse_share_html(html: str) -> dict | None:
             if not isinstance(v, dict):
                 continue
             if isinstance(v.get("serverResponse"), dict):          # 会話全体の共有（/share/）
-                data = v["serverResponse"].get("data")
+                sr = v["serverResponse"]
+                data = sr.get("data")
                 if isinstance(data, dict) and "mapping" in data:
                     return data
+                if sr.get("type") == "error" or sr.get("showInaccessibleToast"):   # 共有を止めた・削除した（本人が「共有リンクを削除」した状態）
+                    return {"inaccessible": True, "error": str(sr.get("error") or sr.get("toastMessage") or "")[:200]}
             post = ((v.get("postWithProfile") or {}).get("post")) if isinstance(v.get("postWithProfile"), dict) else None
             if isinstance(post, dict):                               # 1回答だけの共有（/s/t_）
                 msgs = []
@@ -229,6 +251,8 @@ def fetch_share_html(url: str, timeout: float = 30, tries: int = 3) -> FetchResu
         if not data:   # 会話データが無いページ。混雑時の確認ページのこともあるので、間をあけて再試行する
             last = FetchResult("error", [], final, error="no embedded data")
             continue
+        if data.get("inaccessible"):
+            return FetchResult("invalid", [], final, error="share inaccessible")
         msgs = messages_from_data(data)
         if not msgs:
             return FetchResult("invalid", [], final, error="no messages in data")

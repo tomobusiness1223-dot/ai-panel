@@ -36,6 +36,31 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
     with _PROCESS_LOCK:
         _process_submission(sub_id, reprocess)
 
+def _recheck_from_stored(db: Session, sub_id: int) -> None:
+    """共有ページを取り直せない提出について、保存済みの発言（伏字済み）から、現使用ブランドの辞書当てと「答える前に共有」の判定をやり直す。"""
+    from pipeline.fetch import Message
+    sub = db.get(Submission, sub_id)
+    topic = db.get(Topic, sub.topic_id) if sub else None
+    if not sub or not topic or not topic.category_id:
+        return
+    brands = [(b.id, b.canonical_name, b.aliases, b.maker) for b in db.query(Brand).filter_by(category_id=topic.category_id)]
+    compiled = compile_brands(brands) if topic.mode != "premise" else []
+    for ob in db.query(OwnBrand).filter_by(submission_id=sub.id):
+        ob.brand_id = own_brand_lookup(ob.raw_text or "", compiled)
+    if topic.mode == "dialog" and compiled and sub.match_status in ("ok", "typo", "turn"):
+        turns = db.query(ConversationTurn).filter_by(submission_id=sub.id).order_by(ConversationTurn.idx).all()
+        if turns:
+            msgs = [Message(t.role, t.redacted_text or "") for t in turns]
+            pi = next((t.idx for t in turns if t.kind == "prompt"), -1)
+            st = stage_info(msgs, compiled, pi)
+            if st["early"]:
+                sub.match_status, sub.accept_status = "early", "reference"
+                r = db.scalar(select(Response).where(Response.submission_id == sub.id))
+                if r:
+                    r.answer_note = (r.answer_note or "") + "／質問に答える前に共有（最初の推薦のみ）"
+                print(f"[process] sub={sub.id} rechecked from stored turns: early", flush=True)
+    db.commit()
+
 def _process_submission(sub_id: int, reprocess: bool = False) -> None:
     """reprocess=True：受付済みの提出を、同じリンクから読み直して作り直す（ポイントは付け直さない）。"""
     db: Session = SessionLocal()
@@ -59,7 +84,9 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             res.status = "invalid"                     # 会話データの無いページ＝開けない共有リンクとして扱う
         if reprocess and res.status != "ok":
             print(f"[process] sub={sub.id} reprocess skipped: fetch={res.status} {res.error}", flush=True)
-            db.rollback(); return
+            db.rollback()
+            _recheck_from_stored(db, sub_id)   # 取り直せなくても、保存済みの会話から辞書の当て直しと「答える前に共有」の判定だけはやり直す
+            return
         sub.fetch_status = res.status
         print(f"[process] sub={sub.id} fetch={res.status} final={res.final_url} title={res.title!r} msgs={len(res.messages)} err={res.error}", flush=True)
         if res.status != "ok":
