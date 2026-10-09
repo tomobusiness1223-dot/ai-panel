@@ -173,7 +173,11 @@ class OwnAnswer(Base):
     knew_before: Mapped[str | None] = mapped_column(String(12))      # 相談前から知っていたか：considered（候補に入れていた）/ name_only（名前は知っていた）/ unknown（知らなかった）
     appeal_text: Mapped[str | None] = mapped_column(Text)            # 選んだ商品のどこに魅力を感じたか（自由記述）
     runner_up_text: Mapped[str | None] = mapped_column(Text)         # いちばん迷ったほかの候補
-    rejection_text: Mapped[str | None] = mapped_column(Text)         # その候補のどこが合わなかったか／買わなかった場合は候補のどこが決め手に欠けたか（自由記述）
+    rejection_text: Mapped[str | None] = mapped_column(Text)         # 【買った人】迷った候補を選ばなかった理由（その商品のどこが合わなかったか）
+    candidates_text: Mapped[str | None] = mapped_column(Text)        # 【検討中】一緒に検討している候補
+    stall_reason_text: Mapped[str | None] = mapped_column(Text)      # 【検討中】なぜ検討で止まっているか
+    needed_info_text: Mapped[str | None] = mapped_column(Text)       # 【検討中】どんな情報があれば迷いなく進めたか
+    not_buy_reason_text: Mapped[str | None] = mapped_column(Text)    # 【買わなかった】なぜ買わなかったか、なぜ何も選ばなかったか
 
 class ConversationTurn(Base):
     """提出された会話の全発言（伏字済み）。結果に至るまでのやり取りを残す。"""

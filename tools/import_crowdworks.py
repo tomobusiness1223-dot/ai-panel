@@ -83,9 +83,10 @@ def body_B(h, r):
     key = GENRE_BY_NAME.get(name)
     KNEW = {"知っていて、候補に入れていた": "considered", "名前は知っていた": "name_only", "知らなかった": "unknown"}
     item = {"topic_key": "own", "link_url": col(h, r, "共有リンク"), "genre_key": key or "other", "own_category": col(h, r, "その他を選んだ") or name,
-            "outcome": M["outcome"].get(col(h, r, "相談した結果")), "chosen_text": col(h, r, "買った（または選んだ）"),
+            "outcome": M["outcome"].get(col(h, r, "相談した結果"), "bought"),   # クラウドワークス版は「買った・契約した」会話だけを募集する
+            "chosen_text": col(h, r, "買った・契約した") or col(h, r, "買った（または選んだ）"),
             "knew_before": KNEW.get(col(h, r, "相談する前から")), "appeal_text": col(h, r, "どこに魅力"),
-            "runner_up_text": col(h, r, "いちばん迷った"), "rejection_text": col(h, r, "選ばなかった理由")}
+            "runner_up_text": col(h, r, "ほかに迷った") or col(h, r, "いちばん迷った"), "rejection_text": col(h, r, "選ばなかった理由")}
     return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": [item] if item["link_url"] else []}
 
 def main():

@@ -221,18 +221,29 @@ async function renderOwn(t){
   <ol class="steps" style="margin-top:12px"><li>ChatGPT の履歴からその会話を開く</li><li>画面上の「共有」からリンクを作り、下に貼る</li></ol>
   <p class="muted">他人に見られたくない内容が含まれる会話は提出しないでください。名前などはこちらで伏せ字にします。</p>
   <label>共有リンク</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
-  <label>相談した結果</label><div class="radios"><label><input type="radio" name="outcome" value="bought">買った・契約した</label><label><input type="radio" name="outcome" value="considering">検討中</label><label><input type="radio" name="outcome" value="not_bought">買わなかった</label></div>
-  <label>買った（または選んだ）もの。なければ空欄</label><input type="text" id="chosen" placeholder="商品名・ブランド名・サービス名">
-  <label>ChatGPT に相談する前から、その商品・サービスを知っていましたか</label><div class="radios" style="display:flex;flex-direction:column"><label><input type="radio" name="knew" value="considered">知っていて、候補に入れていた</label><label><input type="radio" name="knew" value="name_only">名前は知っていた</label><label><input type="radio" name="knew" value="unknown">知らなかった</label></div>
-  <label>その商品・サービスの、どこに魅力を感じましたか。ChatGPT の説明を読んで、どんな商品だと受け取り、どこが自分に合うと思ったかを、具体的に書いてください</label><textarea id="appeal" rows="3"></textarea>
-  <label>ChatGPT が挙げたほかの候補のうち、いちばん迷ったもの（なければ「なし」）</label><input type="text" id="runner" placeholder="商品名・ブランド名・サービス名">
-  <label>その候補を選ばなかった理由を、具体的に書いてください。その商品・サービスのどこが自分に合わないと感じましたか（何も買わなかった方は、挙がった候補のどこが決め手に欠けたかを書いてください）</label><textarea id="reject" rows="3"></textarea>
+  <label>相談した結果</label><div class="radios"><label><input type="radio" name="outcome" value="bought">買った・契約した</label><label><input type="radio" name="outcome" value="considering">検討中（まだ決めていない）</label><label><input type="radio" name="outcome" value="not_bought">買わなかった</label></div>
+  <div id="sec_bought" hidden>
+    <label>買った・契約したもの</label><input type="text" id="chosen" placeholder="商品名・ブランド名・サービス名">
+    <label>ChatGPT に相談する前から、その商品・サービスを知っていましたか</label><div class="radios" style="display:flex;flex-direction:column"><label><input type="radio" name="knew" value="considered">知っていて、候補に入れていた</label><label><input type="radio" name="knew" value="name_only">名前は知っていた</label><label><input type="radio" name="knew" value="unknown">知らなかった</label></div>
+    <label>その商品・サービスの、どこに魅力を感じましたか。ChatGPT の説明を読んで、どんな商品だと受け取り、どこが自分に合うと思ったかを、具体的に書いてください</label><textarea id="appeal" rows="3"></textarea>
+    <label>ほかに迷ったもの（なければ「なし」）</label><input type="text" id="runner" placeholder="商品名・ブランド名・サービス名">
+    <label>そちらを選ばなかった理由を、具体的に書いてください。その商品・サービスのどこが自分に合わないと感じましたか</label><textarea id="reject" rows="3"></textarea>
+  </div>
+  <div id="sec_considering" hidden>
+    <label>いま検討している候補を、すべて書いてください</label><input type="text" id="cands" placeholder="商品名・ブランド名・サービス名（複数可）">
+    <label>なぜ、まだ決めきれていませんか。具体的に書いてください</label><textarea id="stall" rows="3"></textarea>
+    <label>どんな情報があれば、迷わずに決められたと思いますか</label><textarea id="needed" rows="3"></textarea>
+  </div>
+  <div id="sec_not_bought" hidden>
+    <label>なぜ買わなかった（何も選ばなかった）のですか。具体的に書いてください</label><textarea id="notbuy" rows="3"></textarea>
+  </div>
   <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
   const showPts=()=>{const g=$("#ogroup").value; if(g==="__other"){$("#opts").textContent=`${G.other_points}ポイント`;return;} const it=G.groups[g]?.items.find(x=>x.key===$("#oitem").value); $("#opts").textContent=it?`${it.points}ポイント`:"";};
   $("#ogroup").onchange=()=>{const g=$("#ogroup").value; const other=g==="__other"; $("#ocat_other").hidden=!other; $("#oitem").hidden=$("#oitem_label").hidden=other||!g;
     if(!other&&g){$("#oitem").innerHTML=`<option value="">選んでください</option>`+G.groups[g].items.map(x=>`<option value="${x.key}">${x.name}</option>`).join("");} showPts();};
   $("#oitem").onchange=showPts;
+  document.querySelectorAll("input[name=outcome]").forEach(el=>el.onchange=()=>{for(const k of ["bought","considering","not_bought"]) $("#sec_"+k).hidden=(k!==el.value);});
   const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
   $("#send").onclick=async()=>{
     const g=$("#ogroup").value; const other=g==="__other"; const genre_key=other?"other":$("#oitem").value; const own_category=other?$("#ocat_other").value.trim():"";
@@ -240,11 +251,24 @@ async function renderOwn(t){
     if(!g||(!other&&!genre_key)||(other&&!own_category)){$("#msg").innerHTML=`<div class="msg ng">何についての相談かを選んでください</div>`;return;}
     if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください</div>`;return;}
     if(!outcome){$("#msg").innerHTML=`<div class="msg ng">相談した結果を選んでください</div>`;return;}
-    const knew=(document.querySelector("input[name=knew]:checked")||{}).value;
-    if(!knew){$("#msg").innerHTML=`<div class="msg ng">相談する前から知っていたかを選んでください</div>`;return;}
-    if($("#appeal").value.trim().length<5&&outcome!=="not_bought"){$("#msg").innerHTML=`<div class="msg ng">どこに魅力を感じたかを書いてください</div>`;return;}
+    const v=id=>$("#"+id).value.trim(); const err=m=>{$("#msg").innerHTML=`<div class="msg ng">${m}</div>`;};
+    const body={topic_id:t.id,link_url:link,genre_key,own_category,outcome};
+    if(outcome==="bought"){
+      const knew=(document.querySelector("input[name=knew]:checked")||{}).value;
+      if(!v("chosen")) return err("買った・契約したものを書いてください");
+      if(!knew) return err("相談する前から知っていたかを選んでください");
+      if(v("appeal").length<5) return err("どこに魅力を感じたかを書いてください");
+      Object.assign(body,{chosen_text:v("chosen"),knew_before:knew,appeal_text:v("appeal"),runner_up_text:v("runner"),rejection_text:v("reject")});
+    }else if(outcome==="considering"){
+      if(!v("cands")) return err("検討している候補を書いてください");
+      if(v("stall").length<5) return err("決めきれていない理由を書いてください");
+      Object.assign(body,{candidates_text:v("cands"),stall_reason_text:v("stall"),needed_info_text:v("needed")});
+    }else{
+      if(v("notbuy").length<5) return err("買わなかった理由を書いてください");
+      Object.assign(body,{not_buy_reason_text:v("notbuy")});
+    }
     $("#send").disabled=true;$("#msg").innerHTML=`<div class="msg ok">会話を確認しています…</div>`;
-    try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:t.id,link_url:link,genre_key,own_category,outcome,chosen_text:$("#chosen").value,knew_before:knew,appeal_text:$("#appeal").value,runner_up_text:$("#runner").value,rejection_text:$("#reject").value}});poll(r.id,{noReaction:true});}
+    try{const r=await api("/api/submissions",{method:"POST",body});poll(r.id,{noReaction:true});}
     catch(e){$("#send").disabled=false;$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}
   };
 }
