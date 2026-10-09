@@ -29,6 +29,7 @@ input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px}
 .tag{font-size:12px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
 .tag.done{background:#e6f1ea;color:var(--ok)}
 .muted{color:var(--muted);font-size:13px}
+.assure{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:14px;line-height:1.6;border-left:4px solid var(--accent)}
 .radios label{display:inline-flex;align-items:center;gap:6px;margin:4px 12px 4px 0;color:var(--fg);font-size:14px}
 a.back{color:var(--accent);font-size:14px;display:inline-block;margin-bottom:8px}
 [hidden]{display:none!important}
@@ -194,7 +195,8 @@ function renderPremise(t){
   <p class="muted">ChatGPT があなたについて何を覚えていて、買い物やサービス選びの相談でどう使っているかを調べるお題です。${t.resubmit_days}日ごとに更新でき、変化を追えます。</p>
   <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る</li><li>回答を読んで、<b>出してよいと思えたら</b>「共有」からリンクを作り、下に貼る</li></ol>
   <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
-  <p class="muted" style="margin-top:8px">個人が特定されるような情報は一切使用せず、分析に使われることはありません。出したくない内容が含まれていれば、提出せずに「お題一覧」に戻ってください。</p>
+  <div class="assure">個人が特定されるような情報は一切使用せず、分析に使われることはありません。</div>
+  <p class="muted" style="margin-top:8px">出したくない内容が含まれていれば、提出せずに「お題一覧」に戻ってください。</p>
   <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
   <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
