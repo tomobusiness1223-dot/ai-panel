@@ -95,7 +95,18 @@ def body_B(h, r):
         item.update({"candidates_text": "、".join(x for x in (chosen, others) if x) or None, "stall_reason_text": why})
     else:
         item.update({"not_buy_reason_text": why, "runner_up_text": others})
-    return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": [item] if item["link_url"] else []}
+    items = []
+    prem = col(h, r, "【お題0", "共有リンク")          # タスクB でも、先に前提のお題を出してもらう
+    if prem and prem not in ("なし", "提出しません"):
+        items.append({"topic_key": "premise", "link_url": prem})
+    own_link = ""
+    for i, x in enumerate(h):                          # 「共有リンク」を含む設問が2つあるので、お題0ではないほうを会話のリンクとする
+        if x and "共有リンク" in x and "【お題0" not in x:
+            own_link = (r[i] or "").strip()
+    item["link_url"] = own_link
+    if own_link:
+        items.append(item)
+    return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": items}
 
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
