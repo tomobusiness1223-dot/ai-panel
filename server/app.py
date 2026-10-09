@@ -437,5 +437,6 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
 
 @app.get("/")
 def index():
-    return FileResponse("liff/index.html")
+    # LINE 内のブラウザが古い画面を使い続けないよう、キャッシュさせない
+    return FileResponse("liff/index.html", headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
 app.mount("/static", StaticFiles(directory="liff"), name="static")
