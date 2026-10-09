@@ -3,7 +3,7 @@
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
-from sqlalchemy import select
+from sqlalchemy import select, func
 from server.db import SessionLocal, init_db, Category, Brand, Topic
 
 PROMPT_V1 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。"
@@ -72,24 +72,28 @@ MAKERS = {
 }
 
 CLOSED = {"shampoo", "earbuds", "vod"}   # 2回目の収集の対象外。再開するときはここから外して seed を実行
-PREMISE_PROMPT = "買い物の相談をするとき、あなたが参考にしている私の情報を教えてください。"
-SPECIAL = [  # key, 表示名, mode, 質問文, ポイント, 必須
-    ("premise", "AIが知っているあなたの情報", "premise", PREMISE_PROMPT, 30, True),
-    ("own", "AIに相談した買い物", "own", "", 90, False),
+PREMISE_PROMPT = "買い物やサービス選びの相談をするとき、あなたが参考にしている私の情報を教えてください。氏名・住所・勤務先など、個人が特定できる情報は書かないでください。"
+SPECIAL = [  # key, 表示名, mode, 質問文, ポイント, 必須（完了コードの条件）, 再提出できる日数
+    ("premise", "AIが知っているあなたの情報", "premise", PREMISE_PROMPT, 30, False, 30),
+    ("own", "AIに相談した買い物・サービス選び", "own", "", 90, False, None),
 ]
 
 def run():
     init_db()
     db = SessionLocal()
-    for key, name, mode, prompt, pts, req in SPECIAL:
+    for key, name, mode, prompt, pts, req, rd in SPECIAL:
         c = db.scalar(select(Category).where(Category.key == key))
         if not c:
             c = Category(key=key, name=name, type="special"); db.add(c); db.flush()
-        t = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1"))
+        c.name = name
+        for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None), Topic.prompt_text != prompt)):
+            t.closes_at = now()   # 質問文を変えたら旧版は締める（提出済みの記録はそのまま）
+        t = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_text == prompt, Topic.closes_at.is_(None)))
         if not t:
-            db.add(Topic(category_id=c.id, prompt_text=prompt, prompt_version="v1", point_value=pts, mode=mode, required=req))
+            ver = "v%d" % (db.scalar(select(func.count(Topic.id)).where(Topic.category_id == c.id)) + 1)
+            db.add(Topic(category_id=c.id, prompt_text=prompt, prompt_version=ver, point_value=pts, mode=mode, required=req, resubmit_days=rd))
         else:
-            t.mode, t.required, t.point_value, t.prompt_text = mode, req, pts, prompt
+            t.mode, t.required, t.point_value, t.resubmit_days = mode, req, pts, rd
     for key, name, cname, unit, ctype in CATEGORIES:
         c = db.scalar(select(Category).where(Category.key == key))
         if not c:

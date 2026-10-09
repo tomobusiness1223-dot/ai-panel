@@ -1,0 +1,47 @@
+{
+  "_note": "系統B（実会話の提供）で選べるジャンル。大カテゴリ → 中カテゴリ。points は受付時に付与するポイント（欲しいジャンルに傾斜）。中カテゴリの key がお題のカテゴリ key と同じなら、そのブランド辞書を使う。",
+  "default_points": 90,
+  "other_points": 60,
+  "groups": [
+    {"name": "美容・日用品", "items": [
+      {"key": "toner", "name": "化粧水", "points": 150},
+      {"key": "skincare", "name": "スキンケア（化粧水以外）", "points": 120},
+      {"key": "shampoo", "name": "シャンプー・ヘアケア", "points": 120},
+      {"key": "sunscreen", "name": "日焼け止め", "points": 90},
+      {"key": "detergent", "name": "洗剤・柔軟剤", "points": 90},
+      {"key": "oralcare", "name": "歯磨き・オーラルケア", "points": 90}
+    ]},
+    {"name": "健康・食品", "items": [
+      {"key": "protein", "name": "プロテイン", "points": 150},
+      {"key": "supplement", "name": "サプリメント", "points": 120},
+      {"key": "health_food", "name": "健康食品・ダイエット食品", "points": 90},
+      {"key": "beverage", "name": "飲料", "points": 90},
+      {"key": "food", "name": "食品・冷凍食品", "points": 90}
+    ]},
+    {"name": "家電・デジタル", "items": [
+      {"key": "smartphone", "name": "スマートフォン", "points": 90},
+      {"key": "pc", "name": "パソコン・タブレット", "points": 90},
+      {"key": "earbuds", "name": "イヤホン・オーディオ", "points": 90},
+      {"key": "beauty_device", "name": "美容家電", "points": 90},
+      {"key": "appliance", "name": "生活家電（掃除機・炊飯器など）", "points": 90}
+    ]},
+    {"name": "金融・保険", "items": [
+      {"key": "credit_card", "name": "クレジットカード", "points": 150},
+      {"key": "insurance", "name": "保険", "points": 120},
+      {"key": "investment", "name": "証券・投資・NISA", "points": 120},
+      {"key": "loan", "name": "ローン・住宅ローン", "points": 90}
+    ]},
+    {"name": "サービス", "items": [
+      {"key": "vod", "name": "動画配信・音楽配信", "points": 90},
+      {"key": "telecom", "name": "通信（スマホ回線・光回線）", "points": 120},
+      {"key": "job", "name": "転職・求人サービス", "points": 120},
+      {"key": "learning", "name": "英会話・学習サービス", "points": 90},
+      {"key": "travel", "name": "旅行・宿泊", "points": 90},
+      {"key": "moving", "name": "引っ越し・不動産", "points": 90}
+    ]},
+    {"name": "車・住まい", "items": [
+      {"key": "car", "name": "自動車・カー用品", "points": 90},
+      {"key": "furniture", "name": "家具・インテリア", "points": 90}
+    ]}
+  ]
+}

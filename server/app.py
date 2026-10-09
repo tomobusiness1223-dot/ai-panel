@@ -18,6 +18,9 @@ from .db import (SessionLocal, init_db, Panelist, PanelistAttribute, Category, B
                  Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, Annotation, SubmissionReaction, OwnAnswer, now)
 from .process import process_submission
 from pipeline.fetch import classify_link
+import json as _json
+GENRES = _json.load(open("pipeline/genres.json", encoding="utf-8"))
+GENRE_INDEX = {it["key"]: {**it, "group": g["name"]} for g in GENRES["groups"] for it in g["items"]}
 
 DEV_MODE = os.environ.get("DEV_MODE", "1") == "1"
 LINE_CHANNEL_ID = os.environ.get("LINE_CHANNEL_ID")
@@ -130,13 +133,25 @@ def topics(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
     t = now()
     rows = db.execute(select(Topic, Category).join(Category, Topic.category_id == Category.id)
                       .where(Topic.opens_at <= t, (Topic.closes_at.is_(None)) | (Topic.closes_at > t)).order_by(Topic.id)).all()
-    done = {}
+    done, last = {}, {}
     if p:
-        for s in db.scalars(select(Submission).where(Submission.panelist_id == p.id)):
+        for s in db.scalars(select(Submission).where(Submission.panelist_id == p.id).order_by(Submission.id)):
             if s.accept_status in ("accepted", "reference", "pending", "declined"):
-                done[s.topic_id] = s.accept_status
-    return [{"id": tp.id, "category": c.name, "category_key": c.key, "prompt_text": tp.prompt_text, "point_value": tp.point_value,
-             "mode": tp.mode, "required": tp.required, "status": done.get(tp.id)} for tp, c in rows]
+                done[s.topic_id] = s.accept_status; last[s.topic_id] = s.submitted_at
+    out = []
+    for tp, c in rows:
+        st = done.get(tp.id); can_re = False; next_at = None
+        if st in ("accepted", "reference") and tp.resubmit_days:
+            next_at = last[tp.id] + dt.timedelta(days=tp.resubmit_days)
+            can_re = t >= next_at
+        out.append({"id": tp.id, "category": c.name, "category_key": c.key, "prompt_text": tp.prompt_text, "point_value": tp.point_value,
+                    "mode": tp.mode, "required": tp.required, "status": st, "resubmit_days": tp.resubmit_days, "can_resubmit": can_re,
+                    "last_submitted_at": last[tp.id].isoformat() if tp.id in last else None, "next_resubmit_at": next_at.isoformat() if next_at else None})
+    return out
+
+@app.get("/api/genres")
+def genres():
+    return {"groups": GENRES["groups"], "other_points": GENRES["other_points"]}
 
 @app.get("/api/brands")
 def brands(category_key: str, db: Session = Depends(get_db)):
@@ -151,7 +166,8 @@ class SubmitIn(BaseModel):
     own_brand_text: str | None = None
     intent: str | None = None
     declined: bool = False                 # 前提のお題：内容を提出しない（ポイントなし。件数だけ数える）
-    own_category: str | None = None        # 系統B
+    own_category: str | None = None        # 系統B：その他のときの自由記述
+    genre_key: str | None = None           # 系統B：ジャンル key（genres.json）または "other"
     outcome: str | None = None             # 系統B：bought / considering / not_bought
     chosen_text: str | None = None
     appeal_tags: list[str] = []
@@ -168,9 +184,12 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
         raise HTTPException(404, "お題がありません")
     if topic.mode != "own":   # 系統B は同じお題に何件でも出せる
         exists = db.scalar(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == topic.id,
-                                                     Submission.accept_status.in_(["accepted", "reference", "pending", "declined"])))
+                                                     Submission.accept_status.in_(["accepted", "reference", "pending", "declined"])).order_by(Submission.id.desc()))
         if exists:
-            raise HTTPException(409, "このお題はすでに提出済みです")
+            if topic.resubmit_days and exists.accept_status in ("accepted", "reference") and now() >= exists.submitted_at + dt.timedelta(days=topic.resubmit_days):
+                pass   # 期間が過ぎたので再提出できる（履歴として積み上がる）
+            else:
+                raise HTTPException(409, "このお題はすでに提出済みです" + (f"。{topic.resubmit_days}日後に更新できます" if topic.resubmit_days else ""))
     if body.declined and topic.mode == "premise":
         s = Submission(panelist_id=p.id, topic_id=topic.id, link_url="", link_type="none", fetch_status="skipped",
                        match_status="declined", accept_status="declined", reject_reason="本人が提出しないことを選択")
@@ -179,14 +198,20 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
     link_type, reason = classify_link(body.link_url)
     if reason:
         raise HTTPException(422, reason)
+    genre_key, own_label, pts = None, None, None
     if topic.mode == "own":
         if body.outcome not in ("bought", "considering", "not_bought"):
             raise HTTPException(422, "相談した結果を選んでください")
-        if not (body.own_category or "").strip():
-            raise HTTPException(422, "カテゴリを選んでください")
+        gk = (body.genre_key or "").strip()
+        if gk in GENRE_INDEX:
+            genre_key, own_label, pts = gk, GENRE_INDEX[gk]["name"], GENRE_INDEX[gk]["points"]
+        elif gk == "other" and (body.own_category or "").strip():
+            genre_key, own_label, pts = "other", (body.own_category or "").strip()[:60], GENRES["other_points"]
+        else:
+            raise HTTPException(422, "ジャンルを選んでください")
     s = Submission(panelist_id=p.id, topic_id=topic.id, link_url=body.link_url.strip(), link_type=link_type,
                    own_brand_text=(body.own_brand_text or "").strip() or None, intent=body.intent,
-                   own_category=(body.own_category or "").strip()[:60] or None)
+                   own_category=own_label, genre_key=genre_key, point_value=pts)
     db.add(s); db.flush()
     if topic.mode == "own":
         db.add(OwnAnswer(submission_id=s.id, outcome=body.outcome, chosen_text=(body.chosen_text or "").strip() or None,
@@ -387,10 +412,10 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
             b = db.get(Brand, m.brand_id) if m else None
             w.writerow([pid, ck, s.id, m.rank if m else "", (m.product_text or b.canonical_name) if m else "", int(rx.picked_none), rx.will_refer or ""])
     elif name == "own_answers":  # 系統B の4問
-        w.writerow(["person_id", "submission_id", "own_category", "outcome", "chosen_text", "appeal_tags", "rejection_tags", "other_text", "accept_status"])
+        w.writerow(["person_id", "submission_id", "genre_key", "own_category", "points", "outcome", "chosen_text", "appeal_tags", "rejection_tags", "other_text", "accept_status"])
         for s in db.scalars(select(Submission).where(Submission.own_category.is_not(None)).order_by(Submission.id)):
             oa = db.scalar(select(OwnAnswer).where(OwnAnswer.submission_id == s.id))
-            w.writerow([s.panelist_id, s.id, s.own_category, oa.outcome if oa else "", oa.chosen_text if oa else "", oa.appeal_tags if oa else "", oa.rejection_tags if oa else "", oa.other_text if oa else "", s.accept_status])
+            w.writerow([s.panelist_id, s.id, s.genre_key or "", s.own_category, s.point_value or "", oa.outcome if oa else "", oa.chosen_text if oa else "", oa.appeal_tags if oa else "", oa.rejection_tags if oa else "", oa.other_text if oa else "", s.accept_status])
     elif name == "premises":     # 前提のお題の回答（伏字済み）と、提出しなかった人
         w.writerow(["person_id", "submission_id", "accept_status", "text"])
         for s, t, c in db.execute(select(Submission, Topic, Category).join(Topic, Submission.topic_id == Topic.id).join(Category, Topic.category_id == Category.id).where(Category.key == "premise").order_by(Submission.id)):

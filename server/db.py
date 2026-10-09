@@ -70,6 +70,7 @@ class Topic(Base):
     point_value: Mapped[int] = mapped_column(Integer, default=30)
     mode: Mapped[str] = mapped_column(String(10), default="single")   # single／dialog（ヒアリング往復）／premise（AIが知っている前提を聞く）／own（過去の実会話の提供）
     required: Mapped[bool] = mapped_column(Boolean, default=True)     # 完了コードの条件に含めるか
+    resubmit_days: Mapped[int | None] = mapped_column(Integer)         # この日数を過ぎたら同じ人が再提出できる（前提のお題＝30日）
 
 class Submission(Base):
     __tablename__ = "submission"
@@ -86,6 +87,8 @@ class Submission(Base):
     own_brand_text: Mapped[str | None] = mapped_column(Text)
     intent: Mapped[str | None] = mapped_column(String(10))           # yes / no / unknown
     own_category: Mapped[str | None] = mapped_column(String(60))     # 系統B：本人が選んだカテゴリ（その他は自由記述）
+    genre_key: Mapped[str | None] = mapped_column(String(30), index=True)   # 系統B：ジャンルの key（genres.json）。その他は "other"
+    point_value: Mapped[int | None] = mapped_column(Integer)         # 受付時に付与するポイント（未設定ならお題の値）
 
 class Response(Base):
     __tablename__ = "response"

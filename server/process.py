@@ -83,7 +83,7 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
         cat_id = topic.category_id
         if topic.mode == "own":
             # 本人が選んだカテゴリの辞書を使う（お題のカテゴリ名と一致すれば）
-            c = db.scalar(select(Category).where((Category.key == (sub.own_category or "")) | (Category.name == (sub.own_category or ""))))
+            c = db.scalar(select(Category).where((Category.key == (sub.genre_key or "")) | (Category.name == (sub.own_category or ""))))
             cat_id = c.id if c else None
         brands = [(b.id, b.canonical_name, b.aliases, b.maker) for b in db.query(Brand).filter_by(category_id=cat_id)] if cat_id else []
         compiled = compile_brands(brands)
@@ -130,7 +130,7 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
                 db.add(Source(submission_id=sub.id, turn_idx=i, is_answer_turn=(i == mr.answer_index), domain=sc["domain"][:120], url=sc["url"], title=sc.get("title")))
         sub.accept_status = "accepted" if mr.status in ("ok", "typo", "dialog", "own") else "reference"
         if not reprocess:
-            db.add(PointLedger(panelist_id=sub.panelist_id, delta=topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
+            db.add(PointLedger(panelist_id=sub.panelist_id, delta=sub.point_value or topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
         db.commit()
     except Exception as e:
         db.rollback()

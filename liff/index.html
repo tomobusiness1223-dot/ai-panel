@@ -112,14 +112,19 @@ function renderRegister(){
   };
 }
 function renderHome(){
-  const list=TOPICS.filter(t=>t.mode!=="own").map(t=>`<div class="topic"><div><div><b>${t.category}</b>${t.required?'':' <span class="muted">（任意）</span>'}</div><div class="muted">${t.point_value}ポイント</div></div>
-    ${t.status==="accepted"||t.status==="reference"?`<span class="tag done">提出済み</span>`:t.status==="declined"?`<span class="tag">提出しない</span>`:t.status==="pending"?`<span class="tag">確認中</span>`:`<button class="btn sec" data-topic="${t.id}">やる</button>`}</div>`).join("");
+  const fmt=d=>d?new Date(d).toLocaleDateString("ja-JP"):"";
+  const ordered=[...TOPICS.filter(t=>t.mode==="premise"),...TOPICS.filter(t=>t.mode!=="premise"&&t.mode!=="own")];
+  const list=ordered.map(t=>{
+    const done=t.status==="accepted"||t.status==="reference";
+    const sub=t.mode==="premise"?`${t.point_value}ポイント・${t.resubmit_days}日ごとに更新できます${done?`（前回 ${fmt(t.last_submitted_at)}）`:""}`:`${t.point_value}ポイント`;
+    const right=done&&t.can_resubmit?`<button class="btn sec" data-topic="${t.id}">更新する</button>`:done?`<span class="tag done">提出済み</span>`:t.status==="pending"?`<span class="tag">確認中</span>`:`<button class="btn sec" data-topic="${t.id}">やる</button>`;
+    return `<div class="topic"><div><div><b>${t.category}</b></div><div class="muted">${sub}</div></div>${right}</div>`;}).join("");
   const own=TOPICS.find(t=>t.mode==="own");
   const code=ME.completion_code?`<div class="card" style="border-color:var(--accent)"><h2>すべてのお題が完了しました</h2><p class="muted">クラウドワークスなどから参加した方は、作業画面に次の完了コードを入力してください。</p><div class="pts" style="letter-spacing:.15em;font-family:ui-monospace,Menlo,monospace">${ME.completion_code}</div></div>`:
     `<div class="card"><div class="muted">お題の進み具合</div><div class="pts">${ME.required_done} / ${ME.required_total}</div><p class="muted" style="margin:4px 0 0">すべて終わると、作業の完了コードが表示されます。</p></div>`;
   $("#app").innerHTML=`<div class="card"><div class="muted">ポイント</div><div class="pts">${ME.points}</div></div>${code}
   <div class="card"><h2>今週のお題</h2>${list||'<p class="muted">いまは受付中のお題がありません。</p>'}</div>
-  ${own?`<div class="card"><h2>AIに相談して買い物をしたことがある方へ</h2><p class="muted">過去に ChatGPT に相談して、何かを買った（または検討した）会話があれば、その会話を共有してください。お題とは別に、何件でも提出できます。${own.point_value}ポイント／件。</p><button class="btn sec" id="ownbtn">会話を提出する</button></div>`:''}`;
+  ${own?`<div class="card"><h2>AIに相談して買い物やサービス選びをしたことがある方へ</h2><p class="muted">過去に ChatGPT に相談して、何かを買った・契約した・検討した会話があれば、その会話を共有してください。お題とは別に、何件でも提出できます。ジャンルにより60〜150ポイント／件。</p><button class="btn sec" id="ownbtn">会話を提出する</button></div>`:''}`;
   document.querySelectorAll("[data-topic]").forEach(b=>b.onclick=()=>{const t=TOPICS.find(x=>x.id===Number(b.dataset.topic)); t.mode==="premise"?renderPremise(t):renderSubmit(t.id);});
   if(own){$("#ownbtn").onclick=()=>renderOwn(own);}
 }
@@ -181,49 +186,53 @@ function renderReaction(s){
 }
 function renderPremise(t){
   $("#app").innerHTML=`<a class="back" href="#" id="back">← お題一覧</a><div class="card"><h2>${t.category}</h2>
-  <p class="muted">ChatGPT があなたについて何を覚えていて、買い物の相談でどう使っているかを調べるお題です。</p>
+  <p class="muted">ChatGPT があなたについて何を覚えていて、買い物やサービス選びの相談でどう使っているかを調べるお題です。${t.resubmit_days}日ごとに更新でき、変化を追えます。</p>
   <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る</li><li>回答を読んで、<b>出してよいと思えたら</b>「共有」からリンクを作り、下に貼る</li></ol>
   <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
-  <p class="muted" style="margin-top:8px">名前・勤務先・住所などは、こちらで伏せ字にしてから保存します。回答に他人に見られたくない内容が含まれていて出したくない場合は、下の「この内容は提出しない」を押してください（ポイントは付きませんが、お題は完了扱いになります）。</p>
+  <p class="muted" style="margin-top:8px">質問文には「個人が特定できる情報は書かない」ように指示が入っています。それでも名前などが含まれていた場合は、こちらで伏せ字にしてから保存します。出したくない内容が含まれていれば、提出せずに「お題一覧」に戻ってください。</p>
   <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
-  <button class="btn" id="send">提出する</button><button class="btn sec" id="decline" style="width:100%;margin-top:8px">この内容は提出しない</button><div id="msg"></div></div>`;
+  <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
   $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(t.prompt_text);$("#copy").textContent="コピーしました";}catch(e){const r=document.createRange();r.selectNodeContents($("#ptxt"));getSelection().removeAllRanges();getSelection().addRange(r);$("#copy").textContent="選択しました。長押しでコピー";}};
   const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
   $("#send").onclick=async()=>{const link=$("#link").value.trim(); if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください</div>`;return;}
     $("#send").disabled=true;$("#msg").innerHTML=`<div class="msg ok">回答を確認しています…</div>`;
     try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:t.id,link_url:link}});poll(r.id,{noReaction:true});}catch(e){$("#send").disabled=false;$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}};
-  $("#decline").onclick=async()=>{try{await api("/api/submissions",{method:"POST",body:{topic_id:t.id,declined:true}});load();}catch(e){$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}};
 }
-const APPEAL=[["price","価格が手頃だった"],["spec","成分・性能・機能が良さそうだった"],["review","口コミ・評価が良かった"],["brand","知っているブランドだった"],["access","買いやすかった（近くの店・ネット）"],["fit","自分の条件に合っていた"],["other","その他"]];
+const APPEAL=[["price","価格・料金が手頃だった"],["spec","成分・性能・機能・内容が良さそうだった"],["review","口コミ・評価が良かった"],["brand","知っているブランド・会社だった"],["access","買いやすかった・申し込みやすかった"],["fit","自分の条件に合っていた"],["other","その他"]];
 const REJECT=[["price","高かった"],["info","情報が足りなかった"],["trust","信用できなかった"],["store","店や人に別のものを勧められた"],["undecided","まだ迷っている"],["noneed","必要なくなった"],["other","その他"]];
-function renderOwn(t){
-  const cats=TOPICS.filter(x=>x.mode!=="own"&&x.mode!=="premise").map(x=>x.category);
-  $("#app").innerHTML=`<a class="back" href="#" id="back">← 戻る</a><div class="card"><h2>AIに相談した買い物の会話</h2>
-  <p class="muted">過去に ChatGPT に相談して、何かを買った・検討した会話を共有してください。質問文の指定はありません。相談の内容そのままで大丈夫です。</p>
-  <label>何の買い物でしたか</label><select id="ocat"><option value="">選んでください</option>${cats.map(c=>`<option>${c}</option>`).join("")}<option value="__other">その他</option></select>
+async function renderOwn(t){
+  const G=await api("/api/genres");
+  $("#app").innerHTML=`<a class="back" href="#" id="back">← 戻る</a><div class="card"><h2>AIに相談した買い物・サービス選びの会話</h2>
+  <p class="muted">過去に ChatGPT に相談して、何かを買った・契約した・検討した会話を共有してください。質問文の指定はありません。相談の内容そのままで大丈夫です。</p>
+  <label>何についての相談でしたか（大分類）</label><select id="ogroup"><option value="">選んでください</option>${G.groups.map((g,i)=>`<option value="${i}">${g.name}</option>`).join("")}<option value="__other">その他</option></select>
+  <label id="oitem_label" hidden>詳しい種類</label><select id="oitem" hidden></select>
   <input type="text" id="ocat_other" placeholder="例：炊飯器、転職エージェント" style="margin-top:6px" hidden>
+  <div class="muted" id="opts" style="margin-top:6px"></div>
   <ol class="steps" style="margin-top:12px"><li>ChatGPT の履歴からその会話を開く</li><li>画面上の「共有」からリンクを作り、下に貼る</li></ol>
   <p class="muted">他人に見られたくない内容が含まれる会話は提出しないでください。名前などはこちらで伏せ字にします。</p>
   <label>共有リンク</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
-  <label>相談した結果</label><div class="radios"><label><input type="radio" name="outcome" value="bought">買った</label><label><input type="radio" name="outcome" value="considering">検討中</label><label><input type="radio" name="outcome" value="not_bought">買わなかった</label></div>
-  <label>買った（または選んだ）もの。なければ空欄</label><input type="text" id="chosen" placeholder="商品名・ブランド名">
+  <label>相談した結果</label><div class="radios"><label><input type="radio" name="outcome" value="bought">買った・契約した</label><label><input type="radio" name="outcome" value="considering">検討中</label><label><input type="radio" name="outcome" value="not_bought">買わなかった</label></div>
+  <label>買った（または選んだ）もの。なければ空欄</label><input type="text" id="chosen" placeholder="商品名・ブランド名・サービス名">
   <label>AI の提案で魅力に感じた点（複数可）</label><div class="radios" style="display:flex;flex-direction:column">${APPEAL.map(([v,l])=>`<label><input type="checkbox" name="appeal" value="${v}">${l}</label>`).join("")}</div>
   <label>他を選ばなかった理由、または何も買わなかった理由（複数可）</label><div class="radios" style="display:flex;flex-direction:column">${REJECT.map(([v,l])=>`<label><input type="checkbox" name="reject" value="${v}">${l}</label>`).join("")}</div>
   <label>補足があれば</label><input type="text" id="other" placeholder="任意">
   <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
-  $("#ocat").onchange=()=>{$("#ocat_other").hidden=$("#ocat").value!=="__other";};
+  const showPts=()=>{const g=$("#ogroup").value; if(g==="__other"){$("#opts").textContent=`${G.other_points}ポイント`;return;} const it=G.groups[g]?.items.find(x=>x.key===$("#oitem").value); $("#opts").textContent=it?`${it.points}ポイント`:"";};
+  $("#ogroup").onchange=()=>{const g=$("#ogroup").value; const other=g==="__other"; $("#ocat_other").hidden=!other; $("#oitem").hidden=$("#oitem_label").hidden=other||!g;
+    if(!other&&g){$("#oitem").innerHTML=`<option value="">選んでください</option>`+G.groups[g].items.map(x=>`<option value="${x.key}">${x.name}</option>`).join("");} showPts();};
+  $("#oitem").onchange=showPts;
   const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
   $("#send").onclick=async()=>{
-    const cat=$("#ocat").value==="__other"?$("#ocat_other").value.trim():$("#ocat").value; const link=$("#link").value.trim();
-    const outcome=(document.querySelector("input[name=outcome]:checked")||{}).value;
-    if(!cat){$("#msg").innerHTML=`<div class="msg ng">何の買い物かを選んでください</div>`;return;}
+    const g=$("#ogroup").value; const other=g==="__other"; const genre_key=other?"other":$("#oitem").value; const own_category=other?$("#ocat_other").value.trim():"";
+    const link=$("#link").value.trim(); const outcome=(document.querySelector("input[name=outcome]:checked")||{}).value;
+    if(!g||(!other&&!genre_key)||(other&&!own_category)){$("#msg").innerHTML=`<div class="msg ng">何についての相談かを選んでください</div>`;return;}
     if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください</div>`;return;}
     if(!outcome){$("#msg").innerHTML=`<div class="msg ng">相談した結果を選んでください</div>`;return;}
     const tags=n=>[...document.querySelectorAll(`input[name=${n}]:checked`)].map(x=>x.value);
     $("#send").disabled=true;$("#msg").innerHTML=`<div class="msg ok">会話を確認しています…</div>`;
-    try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:t.id,link_url:link,own_category:cat,outcome,chosen_text:$("#chosen").value,appeal_tags:tags("appeal"),rejection_tags:tags("reject"),other_text:$("#other").value}});poll(r.id,{noReaction:true});}
+    try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:t.id,link_url:link,genre_key,own_category,outcome,chosen_text:$("#chosen").value,appeal_tags:tags("appeal"),rejection_tags:tags("reject"),other_text:$("#other").value}});poll(r.id,{noReaction:true});}
     catch(e){$("#send").disabled=false;$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}
   };
 }
