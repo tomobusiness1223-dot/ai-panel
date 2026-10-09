@@ -128,7 +128,7 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v7"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+EXTRACT_VERSION = "v8"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 
@@ -256,7 +256,7 @@ def pick_dialog_answer(messages: list[Message], compiled) -> tuple[str, int, str
         note += f"。途中にも推薦つきの回答が{n_lists - 1}件あり"
     return (best[0], best[1], note)
 
-ASKS = re.compile(r"[?？]|教えてください|お聞かせ|お知らせください|選んでください|どれに近い|ありますか|ですか")
+ASKS = re.compile(r"[?？]|教えてください|お聞かせ|お知らせください|選んでください|答えてください|回答していただければ|回答をもらえたら|教えてもらえ|分かれば|どれに近い")
 
 def stage_info(messages: list[Message], compiled) -> dict:
     """2段階の質問文（先に薦めてから質問）の会話を調べる。
@@ -269,8 +269,8 @@ def stage_info(messages: list[Message], compiled) -> dict:
     assistants = [i for i, m in enumerate(messages) if m.role == "assistant"]
     replied = len(users) >= 2
     last_ai = messages[assistants[-1]].text if assistants else ""
-    tail = last_ai[-400:]
-    asks = len(ASKS.findall(tail)) >= 1
+    # 2段階の質問文では、最初の回答の後半に質問が並ぶ。発言のどこかに質問の形が2つ以上あれば「質問している」とみなす
+    asks = len(ASKS.findall(last_ai)) >= 2 or len(ASKS.findall(last_ai[-400:])) >= 1
     return {"first": recs[0] if recs else None, "final": recs[-1] if recs else None, "n_stages": len(recs),
             "early": bool(assistants) and not replied and asks}
 

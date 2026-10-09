@@ -28,7 +28,7 @@ BRANDS = {
  "toner": {
   "ハトムギ化粧水": "ハトムギ|naturie|ナチュリエ", "ノブ": "NOV", "オードムーゲ": "", "アクネバリア": "ペアアクネ|ペア ", "ファンケル アクネケア": "", "エトヴォス": "", "オルビス クリアフル": "クリアフル", "プロアクティブ": "Proactiv", "シカペア": "Dr\\.?Jart|ドクタージャルト", "クレ・ド・ポー ボーテ": "クレドポー", "アスタリフト": "ASTALIFT", "カネボウ": "KANEBO", "ルルルン": "LuLuLun", "明色": "明色美顔水|美顔水", "ビフェスタ": "Bifesta", "サナ": "SANA", "ONE BY KOSE": "ワンバイコーセー", "コーセー": "KOSE|KOSÉ", "花王": "Kao", "肌ラボ": "肌ラボ|極潤|hadalabo", "キュレル": "curel", "無印良品": "無印", "イプサ": "IPSA",
   "オルビス": "ORBIS", "アルビオン": "ALBION|スキンコンディショナー", "SK-II": "SK2|SKII|エスケーツー", "ファンケル": "FANCL", "エリクシール": "ELIXIR",
-  "ちふれ": "CHIFURE", "イハダ": "IHADA", "ミノン": "MINON", "菊正宗": "日本酒の化粧水", "メラノCC": "メラノ", "雪肌精": "SEKKISEI",
+  "イハダ": "IHADA", "ミノン": "MINON", "菊正宗": "日本酒の化粧水", "メラノCC": "メラノ", "雪肌精": "SEKKISEI",
   "アクアレーベル": "AQUALABEL", "ドクターシーラボ": "Dr\\.?Ci:?Labo|シーラボ", "コスメデコルテ": "DECORTE|デコルテ", "アヌア": "Anua", "トリデン": "Torriden",
   "ラ ロッシュ ポゼ": "ラロッシュポゼ|La Roche-?Posay", "セタフィル": "Cetaphil", "ビオデルマ": "Bioderma", "ネイチャーリパブリック": "Nature Republic",
   "ロート製薬": "ロート", "資生堂": "SHISEIDO", "ソフィーナ": "SOFINA", "d プログラム": "dプログラム|d-program", "肌美精": "", "なめらか本舗": "豆乳イソフラボン",
@@ -36,15 +36,15 @@ BRANDS = {
   "ハーバー": "HABA", "オバジ": "Obagi", "キールズ": "Kiehl'?s", "クリニーク": "CLINIQUE", "ランコム": "LANCOME|LANCÔME", "エスト": "est", "ポーラ": "POLA",
  },
  "credit_card": {
-  "楽天カード": "楽天", "三井住友カード": "三井住友|SMBC|NL", "JCBカード W": "JCB ?CARD ?W", "JCBザ・クラス": "ザ・クラス|THE CLASS", "JCBゴールド": "JCBゴールド ザ・プレミア", "JCBプラチナ": "", "JALカード": "JAL・JCBカード|JALプラチナ|JAL CLUB-A|JALカード", "ANAカード": "ANA ?VISA|ANA ?JCB|ANAアメックス|ANAカード", "楽天プレミアムカード": "楽天プレミアム", "三井住友カード プラチナプリファード": "プラチナプリファード", "三井住友カード ゴールド": "ゴールド（NL）|ゴールドNL", "ラグジュアリーカード": "Luxury Card", "エポスゴールドカード": "エポスゴールド", "セゾンプラチナ・ビジネス・アメックス": "セゾンプラチナ", "dカード GOLD": "dカード ?GOLD|dカードゴールド", "ヒルトン・オナーズ アメックス": "ヒルトン", "PayPayカード": "PayPay", "イオンカード": "イオン", "エポスカード": "エポス|EPOS",
-  "dカード": "dcard", "au PAYカード": "au ?PAY", "リクルートカード": "リクルート", "セゾンカード": "セゾン|SAISON", "ライフカード": "ライフ",
+  "楽天カード": "楽天", "三井住友カード": "三井住友|SMBC|NL", "JCBカード W": "JCB ?CARD ?W", "JCBザ・クラス": "ザ・クラス|THE CLASS", "JCBゴールド": "JCBゴールド ザ・プレミア", "JCBプラチナ": "", "JALカード": "JAL・JCBカード|JALプラチナ|JAL CLUB-A|JALカード", "ANAカード": "ANA ?VISA|ANA ?JCB|ANAアメックス|ANAカード", "楽天プレミアムカード": "楽天プレミアム", "三井住友カード プラチナプリファード": "プラチナプリファード", "三井住友カード ゴールド": "ゴールド（NL）|ゴールドNL", "ラグジュアリーカード": "Luxury Card", "エポスゴールドカード": "エポスゴールド", "セゾンプラチナ・ビジネス・アメックス": "セゾンプラチナ", "dカード GOLD": "dカード ?GOLD|dカードゴールド", "ヒルトン・オナーズ アメックス": "ヒルトン", "PayPayカード": "PayPay", "イオンカード": "イオン|イオンカードセレクト", "ウエルシアカード": "", "東急カード": "TOKYU CARD", "ビックカメラSuicaカード": "ビックカメラ", "UCSカード": "UCS", "エポスカード": "エポス|EPOS",
+  "dカード": "dcard|d ?カード|dカード", "au PAYカード": "au ?PAY", "リクルートカード": "リクルート", "セゾンカード": "セゾン|SAISON", "ライフカード": "ライフ",
   "アメリカン・エキスプレス": "アメックス|American Express|AMEX", "ビューカード": "ビュー|VIEW", "Oliveフレキシブルペイ": "Olive",
   "三菱UFJカード": "三菱UFJ|MUFG", "Marriott Bonvoyアメックス": "Marriott|マリオット", "ダイナースクラブ": "ダイナース|Diners", "Amazon Mastercard": "Amazon",
   "メルカード": "メルカリ|mercard", "Visa LINE Payクレジットカード": "LINE ?Pay|LINEクレカ", "セブンカード・プラス": "セブンカード|nanaco", "ルミネカード": "ルミネ",
   "ヤフーカード": "Yahoo", "Orico Card": "オリコ|Orico", "P-oneカード": "P-one", "ACマスターカード": "ACマスター", "プロミスVisa": "プロミス",
  },
  "protein": {
-  "ザバス": "SAVAS|明治", "マイプロテイン": "Myprotein|My ?Protein", "ビーレジェンド": "be ?LEGEND", "DNS": "", "VALX": "バルクス", "ゴールドスタンダード": "Gold Standard|Optimum Nutrition|オプティマム",
+  "ザバス": "SAVAS|明治|サバス|zavas", "matsukiyo LAB": "マツキヨ|matsukiyo", "ディアナチュラ": "Dear-?Natura|アサヒ", "LIMITEST": "リミテスト", "ファイン": "FINE", "マイプロテイン": "Myprotein|My ?Protein", "ビーレジェンド": "be ?LEGEND", "DNS": "", "VALX": "バルクス", "ゴールドスタンダード": "Gold Standard|Optimum Nutrition|オプティマム",
   "ウイダー": "ウィダー|Weider|森永", "ULTORA": "ウルトラ", "エクスプロージョン": "X-?PLOSION", "LÝFT": "LYFT|リフト", "タンパクオトメ": "", "アルプロン": "ALPRON",
   "ニチガ": "NICHIGA", "グロング": "GronG", "ハレオ": "HALEO", "ケンタイ": "Kentai|健康体力研究所", "ボディウイング": "Bodywing", "FIXIT": "", "REYS": "レイズ",
   "ザバス ミルクプロテイン": "ミルクプロテイン", "MARUKOME": "大豆プロテイン", "KANEKA": "", "バルクスポーツ": "Bulk ?Sports", "ファインラボ": "FINE ?LAB", "ゴールドジム": "GOLD'?S GYM",

@@ -74,8 +74,8 @@ def parse_share_html(html: str) -> dict | None:
                     return {"post_messages": msgs, "title": post.get("text") or ""}
     return None
 
-TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
-ENTITY = re.compile(r"<Entity\b([^<>]*)/?>")
+TAG = re.compile(r"<\s*/?\s*[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+ENTITY = re.compile(r"<\s*Entity\b([^<>]*)/?>")
 
 def collect_bindings(data: dict) -> dict:
     """商品カードの参照（turnNNNproductN）→ 商品情報。会話内のどの発言に付いていても拾う。"""

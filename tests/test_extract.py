@@ -151,3 +151,14 @@ def test_link_query_string_is_ignored():
     assert classify_link("https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e?ogimg=plain")[0] == "share"
     assert normalize_link("https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e?ogimg=plain") == "https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e"
     assert classify_link("https://chatgpt.com/s/t_6ac8c3f32b40819187f80883a69acfb2")[0] == "s_t"
+
+
+def test_early_share_detected_when_questions_are_mid_message():
+    from pipeline.extract import stage_info
+    comp = compile_brands([(1, "A社", ""), (2, "B社", "")])
+    first = "いま分かっている範囲では\n1. A社\n2. B社\n\nもっと合う提案のため、次を教えてください。\n1. 肌質は？ 乾燥肌・脂性肌\n2. 予算は？ 2,000円以下\n3. 悩みは？\n" + "全部答えなくても大丈夫です。分かる範囲で答えていただければ、候補を絞り込めます。" * 6
+    assert stage_info([Message("user", "q"), Message("assistant", first)], comp)["early"] is True
+
+def test_entity_tag_with_space():
+    from pipeline.share_html import clean_markup
+    assert clean_markup('第1位　< Entity category="product" value="matsukiyo LAB ソイ"/>') == "第1位　matsukiyo LAB ソイ"
