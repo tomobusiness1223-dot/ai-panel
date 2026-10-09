@@ -76,7 +76,7 @@ def health(db: Session = Depends(get_db)):
 # ---------- 画面用 ----------
 @app.get("/api/config")
 def config():
-    return {"liffId": LIFF_ID, "devMode": DEV_MODE, "consentVersion": CONSENT_VERSION}
+    return {"liffId": LIFF_ID, "devMode": DEV_MODE, "consentVersion": CONSENT_VERSION, "build": BUILD}
 
 class RegisterIn(BaseModel):
     gender: str | None = None
@@ -435,8 +435,13 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         raise HTTPException(404)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename={name}.csv"})
 
+_INDEX = open("liff/index.html", encoding="utf-8").read()
+BUILD = hashlib.sha256(_INDEX.encode()).hexdigest()[:10]
+
 @app.get("/")
 def index():
-    # LINE 内のブラウザが古い画面を使い続けないよう、キャッシュさせない
-    return FileResponse("liff/index.html", headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
+    # LINE 内のブラウザが古い画面を使い続けないよう、キャッシュさせない。画面には版（BUILD）を埋め込み、
+    # 画面側が /api/config の版と違うと気づいたら、自分で読み込み直す
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(_INDEX.replace("__BUILD__", BUILD), headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"})
 app.mount("/static", StaticFiles(directory="liff"), name="static")

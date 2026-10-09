@@ -53,7 +53,12 @@ async function api(path,opt={}){
   return j;
 }
 async function boot(){
-  CFG=await (await fetch("/api/config")).json();
+  CFG=await (await fetch("/api/config",{cache:"no-store"})).json();
+  // 古い画面が残っていたら読み込み直す（LINE 内ブラウザのキャッシュ対策）
+  const MY_BUILD="__BUILD__";
+  if(CFG.build && MY_BUILD!==CFG.build && !new URLSearchParams(location.search).has("v")){
+    const u=new URL(location.href); u.searchParams.set("v",CFG.build); location.replace(u.toString()); return;
+  }
   const isLocal=/^(localhost|127\.0\.0\.1)$/.test(location.hostname);
   if(CFG.liffId && !isLocal){
     await new Promise((res,rej)=>{const s=document.createElement("script");s.src="https://static.line-scdn.net/liff/edge/2/sdk.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});
