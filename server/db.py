@@ -156,6 +156,8 @@ class SubmissionReaction(Base):
     picked_none: Mapped[bool] = mapped_column(Boolean, default=False)
     will_refer: Mapped[str | None] = mapped_column(String(10))       # yes / no / unknown
     picked_text: Mapped[str | None] = mapped_column(Text)            # 自由記述で答えた「気になった商品」（クラウドワークス取り込み）
+    reason_tags: Mapped[str | None] = mapped_column(Text)            # 気になった理由（カンマ区切り。APPEAL と同じ選択肢）
+    reason_text: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 class OwnAnswer(Base):

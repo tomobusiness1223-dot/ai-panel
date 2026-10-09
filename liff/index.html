@@ -167,7 +167,7 @@ async function poll(id, opts={}){
     await new Promise(r=>setTimeout(r,2000));
     const s=await api("/api/submissions/"+id);
     if(s.accept_status==="accepted"||s.accept_status==="reference"){
-      if(opts.noReaction||!(s.mentions||[]).length){
+      if(opts.noReaction||!(s.mentions||[]).length||s.intent!=="yes"){   // 気になった商品は、購入予定が「ある」人にだけ聞く
         $("#msg").innerHTML=`<div class="msg ok">受付しました。ポイントを付与しました。${(s.brands||[]).length?`<br><span class="muted">読み取ったおすすめ：${s.brands.join("、")}</span>`:''}</div><button class="btn" id="home">お題一覧へ</button>`;$("#home").onclick=()=>load();return;
       }
       renderReaction(s); return;
@@ -177,17 +177,21 @@ async function poll(id, opts={}){
   $("#msg").innerHTML=`<div class="msg ng">確認に時間がかかっています。あとで「お題一覧」から状態を確認してください。</div>`;
 }
 function renderReaction(s){
+  window.scrollTo(0,0);
   $("#msg").innerHTML=`<div class="msg ok">受付しました。ポイントを付与しました。</div>
-  <div style="margin-top:12px"><b>最後に2つだけ教えてください</b></div>
-  <label>ChatGPT の提案のうち、気になったものはどれですか</label>
+  <div style="margin-top:12px"><b>購入の予定がある方に、最後に2つだけ</b></div>
+  <label>ChatGPT の提案のうち、いちばん気になったものはどれですか</label>
   <div class="radios" style="display:flex;flex-direction:column">${s.mentions.map(m=>`<label><input type="radio" name="pick" value="${m.id}">${m.rank?m.rank+"位 ":""}${m.label}</label>`).join("")}<label><input type="radio" name="pick" value="none">気になるものはなかった</label></div>
-  <label>この提案を、買い物の参考にしますか</label>
-  <div class="radios"><label><input type="radio" name="refer" value="yes">する</label><label><input type="radio" name="refer" value="no">しない</label><label><input type="radio" name="refer" value="unknown">分からない</label></div>
+  <label>その理由（複数可）</label>
+  <div class="radios" style="display:flex;flex-direction:column">${APPEAL.map(([v,l])=>`<label><input type="checkbox" name="rxreason" value="${v}">${l}</label>`).join("")}</div>
+  <input type="text" id="rxtext" placeholder="補足があれば（任意）" style="margin-top:6px">
   <button class="btn" id="rxsend">送信して終わる</button><div id="rxmsg"></div>`;
+  $("#msg").scrollIntoView({block:"start"});
   $("#rxsend").onclick=async()=>{
-    const pick=(document.querySelector("input[name=pick]:checked")||{}).value; const refer=(document.querySelector("input[name=refer]:checked")||{}).value;
-    if(!pick||!refer){$("#rxmsg").innerHTML=`<div class="msg ng">2つとも選んでください</div>`;return;}
-    try{await api("/api/submissions/"+s.id+"/reaction",{method:"POST",body:{picked_mention_id:pick==="none"?null:Number(pick),picked_none:pick==="none",will_refer:refer}});load();}
+    const pick=(document.querySelector("input[name=pick]:checked")||{}).value;
+    if(!pick){$("#rxmsg").innerHTML=`<div class="msg ng">気になったものを選んでください</div>`;return;}
+    const reasons=[...document.querySelectorAll("input[name=rxreason]:checked")].map(x=>x.value);
+    try{await api("/api/submissions/"+s.id+"/reaction",{method:"POST",body:{picked_mention_id:pick==="none"?null:Number(pick),picked_none:pick==="none",reason_tags:reasons,reason_text:$("#rxtext").value}});load();}
     catch(e){$("#rxmsg").innerHTML=`<div class="msg ng">${e.message}</div>`;}
   };
 }

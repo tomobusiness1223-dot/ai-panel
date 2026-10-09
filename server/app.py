@@ -233,13 +233,16 @@ def submission(sid: int, uid: str = Depends(line_user_id), db: Session = Depends
         ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended", Mention.stage != "first").order_by(Mention.rank)).all() if r else []
         out["brands"] = [(m.product_text or b.canonical_name) for m, b in ms]
         out["mentions"] = [{"id": m.id, "rank": m.rank, "label": (m.product_text or b.canonical_name)} for m, b in ms]
+        out["intent"] = s.intent
         out["has_reaction"] = db.scalar(select(SubmissionReaction.id).where(SubmissionReaction.submission_id == s.id)) is not None
     return out
 
 class ReactionIn(BaseModel):
     picked_mention_id: int | None = None
     picked_none: bool = False
-    will_refer: str | None = None
+    will_refer: str | None = None          # 旧設問。現在は聞いていない
+    reason_tags: list[str] = []
+    reason_text: str | None = None
 
 @app.post("/api/submissions/{sid}/reaction")
 def reaction(sid: int, body: ReactionIn, uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
@@ -247,10 +250,11 @@ def reaction(sid: int, body: ReactionIn, uid: str = Depends(line_user_id), db: S
     s = db.get(Submission, sid)
     if not s or not p or s.panelist_id != p.id:
         raise HTTPException(404)
-    if body.will_refer not in ("yes", "no", "unknown"):
-        raise HTTPException(422, "参考にするかを選んでください")
+    if body.picked_mention_id is None and not body.picked_none:
+        raise HTTPException(422, "気になった商品を選んでください")
     db.query(SubmissionReaction).filter_by(submission_id=s.id).delete()
-    db.add(SubmissionReaction(submission_id=s.id, picked_mention_id=body.picked_mention_id, picked_none=body.picked_none or body.picked_mention_id is None, will_refer=body.will_refer))
+    db.add(SubmissionReaction(submission_id=s.id, picked_mention_id=body.picked_mention_id, picked_none=body.picked_none or body.picked_mention_id is None,
+                              will_refer=body.will_refer, reason_tags=",".join(body.reason_tags) or None, reason_text=(body.reason_text or "").strip() or None))
     db.commit()
     return {"ok": True}
 
@@ -525,13 +529,13 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
             for an in db.scalars(select(Annotation).where(Annotation.submission_id == s.id, Annotation.kind == "condition").order_by(Annotation.id)):
                 w.writerow([pid, ck, s.id, an.key, an.value])
     elif name == "reactions":    # 提出直後の反応
-        w.writerow(["person_id", "category", "submission_id", "picked_rank", "picked_label", "picked_none", "will_refer"])
+        w.writerow(["person_id", "category", "submission_id", "picked_rank", "picked_label", "picked_none", "reason_tags", "reason_text"])
         for (pid, ck), (s, t, c) in latest.items():
             rx = db.scalar(select(SubmissionReaction).where(SubmissionReaction.submission_id == s.id))
             if not rx: continue
             m = db.get(Mention, rx.picked_mention_id) if rx.picked_mention_id else None
             b = db.get(Brand, m.brand_id) if m else None
-            w.writerow([pid, ck, s.id, m.rank if m else "", (m.product_text or b.canonical_name) if m else "", int(rx.picked_none), rx.will_refer or ""])
+            w.writerow([pid, ck, s.id, m.rank if m else "", (m.product_text or b.canonical_name) if m else "", int(rx.picked_none), rx.reason_tags or "", rx.reason_text or ""])
     elif name == "own_answers":  # 系統B の4問
         w.writerow(["person_id", "submission_id", "genre_key", "own_category", "points", "outcome", "chosen_text", "appeal_tags", "rejection_tags", "other_text", "accept_status"])
         for s in db.scalars(select(Submission).where(Submission.own_category.is_not(None)).order_by(Submission.id)):

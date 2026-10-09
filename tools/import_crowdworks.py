@@ -69,8 +69,11 @@ def body_A(h, r):
     items = [{"topic_key": "premise", "link_url": col(h, r, "【お題0", "共有リンク")}]
     for n, key in ((1, "toner"), (2, "credit_card"), (3, "protein")):
         tag = f"【お題{n}"
-        items.append({"topic_key": key, "link_url": col(h, r, tag, "共有リンク"), "own_brand_text": col(h, r, tag, "いま使っている"),
-                      "intent": M["intent"].get(col(h, r, tag, "予定")), "picked_text": col(h, r, tag, "気になった"), "will_refer": M["will_refer"].get(col(h, r, tag, "参考に"))})
+        it = {"topic_key": key, "link_url": col(h, r, tag, "共有リンク"), "own_brand_text": col(h, r, tag, "いま使っている"),
+              "intent": M["intent"].get(col(h, r, tag, "予定"))}
+        if any(tag in x and "気になった" in x for x in h):      # 旧設問（現在のフォームには無い）。列があるときだけ送る
+            it["picked_text"] = col(h, r, tag, "気になった"); it["will_refer"] = M["will_refer"].get(col(h, r, tag, "参考に"))
+        items.append(it)
     items = [it for it in items if it["link_url"] and it["link_url"] not in ("なし", "提出しません")]
     return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": items}
 
