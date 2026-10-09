@@ -170,6 +170,10 @@ class OwnAnswer(Base):
     appeal_tags: Mapped[str] = mapped_column(Text, default="")       # カンマ区切り
     rejection_tags: Mapped[str] = mapped_column(Text, default="")
     other_text: Mapped[str | None] = mapped_column(Text)
+    knew_before: Mapped[str | None] = mapped_column(String(12))      # 相談前から知っていたか：considered（候補に入れていた）/ name_only（名前は知っていた）/ unknown（知らなかった）
+    appeal_text: Mapped[str | None] = mapped_column(Text)            # 選んだ商品のどこに魅力を感じたか（自由記述）
+    runner_up_text: Mapped[str | None] = mapped_column(Text)         # いちばん迷ったほかの候補
+    rejection_text: Mapped[str | None] = mapped_column(Text)         # その候補のどこが合わなかったか／買わなかった場合は候補のどこが決め手に欠けたか（自由記述）
 
 class ConversationTurn(Base):
     """提出された会話の全発言（伏字済み）。結果に至るまでのやり取りを残す。"""

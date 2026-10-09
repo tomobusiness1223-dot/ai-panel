@@ -174,6 +174,10 @@ class SubmitIn(BaseModel):
     appeal_tags: list[str] = []
     rejection_tags: list[str] = []
     other_text: str | None = None
+    knew_before: str | None = None
+    appeal_text: str | None = None
+    runner_up_text: str | None = None
+    rejection_text: str | None = None
 
 @app.post("/api/submissions")
 def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
@@ -216,7 +220,9 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
     db.add(s); db.flush()
     if topic.mode == "own":
         db.add(OwnAnswer(submission_id=s.id, outcome=body.outcome, chosen_text=(body.chosen_text or "").strip() or None,
-                         appeal_tags=",".join(body.appeal_tags), rejection_tags=",".join(body.rejection_tags), other_text=(body.other_text or "").strip() or None))
+                         appeal_tags=",".join(body.appeal_tags), rejection_tags=",".join(body.rejection_tags), other_text=(body.other_text or "").strip() or None,
+                             knew_before=body.knew_before if body.knew_before in ("considered", "name_only", "unknown") else None,
+                             appeal_text=(body.appeal_text or "").strip() or None, runner_up_text=(body.runner_up_text or "").strip() or None, rejection_text=(body.rejection_text or "").strip() or None))
     db.commit()
     bg.add_task(process_submission, s.id)
     return {"id": s.id, "status": "pending"}
@@ -283,6 +289,10 @@ class ImportItem(BaseModel):
     appeal_tags: list[str] = []
     rejection_tags: list[str] = []
     other_text: str | None = None
+    knew_before: str | None = None
+    appeal_text: str | None = None
+    runner_up_text: str | None = None
+    rejection_text: str | None = None
 
 class ImportIn(BaseModel):
     source: str = "crowdworks"
@@ -362,7 +372,9 @@ def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = 
         db.add(s); db.flush()
         if tp.mode == "own":
             db.add(OwnAnswer(submission_id=s.id, outcome=it.outcome or "considering", chosen_text=(it.chosen_text or "").strip() or None,
-                             appeal_tags=",".join(it.appeal_tags), rejection_tags=",".join(it.rejection_tags), other_text=(it.other_text or "").strip() or None))
+                             appeal_tags=",".join(it.appeal_tags), rejection_tags=",".join(it.rejection_tags), other_text=(it.other_text or "").strip() or None,
+                             knew_before=it.knew_before if it.knew_before in ("considered", "name_only", "unknown") else None,
+                             appeal_text=(it.appeal_text or "").strip() or None, runner_up_text=(it.runner_up_text or "").strip() or None, rejection_text=(it.rejection_text or "").strip() or None))
         if not reason:
             created.append(s.id)
             if it.picked_text is not None or it.will_refer:
@@ -537,10 +549,11 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
             b = db.get(Brand, m.brand_id) if m else None
             w.writerow([pid, ck, s.id, m.rank if m else "", (m.product_text or b.canonical_name) if m else "", int(rx.picked_none), rx.reason_tags or "", rx.reason_text or ""])
     elif name == "own_answers":  # 系統B の4問
-        w.writerow(["person_id", "submission_id", "genre_key", "own_category", "points", "outcome", "chosen_text", "appeal_tags", "rejection_tags", "other_text", "accept_status"])
+        w.writerow(["person_id", "submission_id", "genre_key", "own_category", "points", "outcome", "chosen_text", "knew_before", "appeal_text", "runner_up_text", "rejection_text", "accept_status"])
         for s in db.scalars(select(Submission).where(Submission.own_category.is_not(None)).order_by(Submission.id)):
             oa = db.scalar(select(OwnAnswer).where(OwnAnswer.submission_id == s.id))
-            w.writerow([s.panelist_id, s.id, s.genre_key or "", s.own_category, s.point_value or "", oa.outcome if oa else "", oa.chosen_text if oa else "", oa.appeal_tags if oa else "", oa.rejection_tags if oa else "", oa.other_text if oa else "", s.accept_status])
+            w.writerow([s.panelist_id, s.id, s.genre_key or "", s.own_category, s.point_value or "", oa.outcome if oa else "", (oa.chosen_text or "") if oa else "",
+                        (oa.knew_before or "") if oa else "", (oa.appeal_text or "") if oa else "", (oa.runner_up_text or "") if oa else "", (oa.rejection_text or "") if oa else "", s.accept_status])
     elif name == "premises":     # 前提のお題の回答（伏字済み）と、提出しなかった人
         w.writerow(["person_id", "submission_id", "accept_status", "text"])
         for s, t, c in db.execute(select(Submission, Topic, Category).join(Topic, Submission.topic_id == Topic.id).join(Category, Topic.category_id == Category.id).where(Category.key == "premise").order_by(Submission.id)):

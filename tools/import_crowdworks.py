@@ -81,10 +81,11 @@ def body_B(h, r):
     g = col(h, r, "何についての相談")
     name = g.split("：", 1)[-1].strip()
     key = GENRE_BY_NAME.get(name)
+    KNEW = {"知っていて、候補に入れていた": "considered", "名前は知っていた": "name_only", "知らなかった": "unknown"}
     item = {"topic_key": "own", "link_url": col(h, r, "共有リンク"), "genre_key": key or "other", "own_category": col(h, r, "その他を選んだ") or name,
             "outcome": M["outcome"].get(col(h, r, "相談した結果")), "chosen_text": col(h, r, "買った（または選んだ）"),
-            "appeal_tags": [APPEAL[x] for x in multi(h, r, "魅力に感じた") if x in APPEAL], "rejection_tags": [REJECT[x] for x in multi(h, r, "選ばなかった理由") if x in REJECT],
-            "other_text": col(h, r, "補足")}
+            "knew_before": KNEW.get(col(h, r, "相談する前から")), "appeal_text": col(h, r, "どこに魅力"),
+            "runner_up_text": col(h, r, "いちばん迷った"), "rejection_text": col(h, r, "選ばなかった理由")}
     return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": [item] if item["link_url"] else []}
 
 def main():
