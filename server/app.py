@@ -118,7 +118,7 @@ def me(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
     subs = db.scalars(select(Submission).where(Submission.panelist_id == p.id).order_by(Submission.id.desc())).all()
     t = now()
     req = db.scalars(select(Topic.id).where(Topic.required.is_(True), Topic.opens_at <= t, (Topic.closes_at.is_(None)) | (Topic.closes_at > t))).all()
-    done_ids = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference", "declined")}
+    done_ids = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference")}
     all_done = bool(req) and all(tid in done_ids for tid in req)
     if not p.completion_code:
         p.completion_code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(6)); db.commit()
@@ -136,7 +136,7 @@ def topics(uid: str = Depends(line_user_id), db: Session = Depends(get_db)):
     done, last = {}, {}
     if p:
         for s in db.scalars(select(Submission).where(Submission.panelist_id == p.id).order_by(Submission.id)):
-            if s.accept_status in ("accepted", "reference", "pending", "declined"):
+            if s.accept_status in ("accepted", "reference", "pending"):   # declined（旧画面の「提出しない」）は未提出として扱う
                 done[s.topic_id] = s.accept_status; last[s.topic_id] = s.submitted_at
     out = []
     for tp, c in rows:
@@ -184,7 +184,7 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
         raise HTTPException(404, "お題がありません")
     if topic.mode != "own":   # 系統B は同じお題に何件でも出せる
         exists = db.scalar(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == topic.id,
-                                                     Submission.accept_status.in_(["accepted", "reference", "pending", "declined"])).order_by(Submission.id.desc()))
+                                                     Submission.accept_status.in_(["accepted", "reference", "pending"])).order_by(Submission.id.desc()))
         if exists:
             if topic.resubmit_days and exists.accept_status in ("accepted", "reference") and now() >= exists.submitted_at + dt.timedelta(days=topic.resubmit_days):
                 pass   # 期間が過ぎたので再提出できる（履歴として積み上がる）
@@ -273,7 +273,7 @@ def admin_completions(token: str, db: Session = Depends(get_db)):
     out = []
     for p in db.scalars(select(Panelist).order_by(Panelist.id)):
         subs = db.scalars(select(Submission).where(Submission.panelist_id == p.id)).all()
-        done = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference", "declined")}
+        done = {s.topic_id for s in subs if s.accept_status in ("accepted", "reference")}
         own = sum(1 for s in subs if s.own_category and s.accept_status in ("accepted", "reference"))
         declined = sum(1 for s in subs if s.accept_status == "declined")
         out.append({"code": p.completion_code, "panelist_id": p.id, "required_done": sum(1 for r in req if r in done), "required_total": len(req),
