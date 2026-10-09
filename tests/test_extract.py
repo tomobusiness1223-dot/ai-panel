@@ -144,3 +144,10 @@ def test_two_stage_conversation():
     assert st2["early"] is False and st2["first"] == st2["final"] == 1
     omakase = full[:2] + [Message("user", "おまかせします。おすすめを教えてください。"), Message("assistant", "では\n1. B社\n2. A社")]
     assert match_prompt(P3, omakase, mode="dialog").status == "fallback"
+
+
+def test_link_query_string_is_ignored():
+    from pipeline.fetch import normalize_link
+    assert classify_link("https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e?ogimg=plain")[0] == "share"
+    assert normalize_link("https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e?ogimg=plain") == "https://chatgpt.com/share/6ac8b839-cdd8-83e8-a8bf-cd84ae899b6e"
+    assert classify_link("https://chatgpt.com/s/t_6ac8c3f32b40819187f80883a69acfb2")[0] == "s_t"

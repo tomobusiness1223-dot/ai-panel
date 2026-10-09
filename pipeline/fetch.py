@@ -10,9 +10,16 @@ S_T = re.compile(r"^https://chatgpt\.com/s/t_[A-Za-z0-9_-]{6,}/?$")
 C_URL = re.compile(r"^https://chatgpt\.com/(c|g)/")
 S_OTHER = re.compile(r"^https://chatgpt\.com/s/(p_|cx_)")
 
+def normalize_link(url: str) -> str:
+    """末尾の ?ogimg=plain などの付加情報と空白を落とす。"""
+    u = (url or "").strip().split("#", 1)[0]
+    if "chatgpt.com/" in u:
+        u = u.split("?", 1)[0]
+    return u.rstrip("/") if u.count("/") > 3 else u
+
 def classify_link(url: str) -> tuple[str, str | None]:
     """(link_type, reject_reason)。share / s_t は受け付ける。"""
-    u = url.strip()
+    u = normalize_link(url)
     if SHARE.match(u):
         return "share", None
     if S_T.match(u):

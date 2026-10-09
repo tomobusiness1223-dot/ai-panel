@@ -1,6 +1,7 @@
 """提出1件の処理（仕様書2.4・3章）：取得 → 構造化 → 伏字 → 保存 → 受付判定 → ポイント。"""
 from __future__ import annotations
-import os, json, hashlib
+import os, json, hashlib, threading
+_PROCESS_LOCK = threading.Lock()   # 取り込みで多数の提出が同時に来ても、処理は1件ずつ（SQLite の書き込み衝突を避ける）
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .db import SessionLocal, Panelist, Submission, Topic, Category, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
@@ -32,6 +33,10 @@ def _save_raw(sub_id: int, payload: dict) -> str:
     return path
 
 def process_submission(sub_id: int, reprocess: bool = False) -> None:
+    with _PROCESS_LOCK:
+        _process_submission(sub_id, reprocess)
+
+def _process_submission(sub_id: int, reprocess: bool = False) -> None:
     """reprocess=True：受付済みの提出を、同じリンクから読み直して作り直す（ポイントは付け直さない）。"""
     db: Session = SessionLocal()
     try:

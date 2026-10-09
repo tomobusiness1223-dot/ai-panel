@@ -17,7 +17,7 @@ import httpx
 from .db import (SessionLocal, init_db, Panelist, PanelistAttribute, Category, Brand, Topic, Submission,
                  Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, Annotation, SubmissionReaction, OwnAnswer, now)
 from .process import process_submission
-from pipeline.fetch import classify_link
+from pipeline.fetch import classify_link, normalize_link
 import json as _json
 GENRES = _json.load(open("pipeline/genres.json", encoding="utf-8"))
 GENRE_INDEX = {it["key"]: {**it, "group": g["name"]} for g in GENRES["groups"] for it in g["items"]}
@@ -218,7 +218,7 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
             genre_key, own_label, pts = "other", (body.own_category or "").strip()[:60], GENRES["other_points"]
         else:
             raise HTTPException(422, "ジャンルを選んでください")
-    s = Submission(panelist_id=p.id, topic_id=topic.id, link_url=body.link_url.strip(), link_type=link_type,
+    s = Submission(panelist_id=p.id, topic_id=topic.id, link_url=normalize_link(body.link_url), link_type=link_type,
                    own_brand_text=(body.own_brand_text or "").strip() or None, intent=body.intent,
                    own_category=own_label, genre_key=genre_key, point_value=pts)
     db.add(s); db.flush()
@@ -365,7 +365,7 @@ def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = 
             errors.append({"topic": it.topic_key, "error": "お題がありません"}); continue
         link_type, reason = classify_link(it.link_url)
         existing = db.scalars(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == tp.id)).all()
-        if any(e.link_url == it.link_url.strip() for e in existing) or (tp.mode != "own" and any(e.accept_status in ("accepted", "reference", "pending") for e in existing)):
+        if any(e.link_url == normalize_link(it.link_url) for e in existing) or (tp.mode != "own" and any(e.accept_status in ("accepted", "reference", "pending") for e in existing)):
             skipped.append(it.topic_key); continue
         genre_key, own_label, pts = None, None, None
         if tp.mode == "own":
@@ -374,7 +374,7 @@ def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = 
                 genre_key, own_label, pts = gk, GENRE_INDEX[gk]["name"], GENRE_INDEX[gk]["points"]
             else:
                 genre_key, own_label, pts = "other", (it.own_category or "その他").strip()[:60], GENRES["other_points"]
-        s = Submission(panelist_id=p.id, topic_id=tp.id, link_url=it.link_url.strip(), link_type=link_type,
+        s = Submission(panelist_id=p.id, topic_id=tp.id, link_url=normalize_link(it.link_url), link_type=link_type,
                        own_brand_text=(it.own_brand_text or "").strip() or None, intent=it.intent, own_category=own_label, genre_key=genre_key, point_value=pts)
         if reason:   # リンクの形が不正：取りに行かずに不受理として記録（承認判断に使う）
             s.fetch_status, s.match_status, s.accept_status, s.reject_reason = "skipped", "fail", "rejected", reason
