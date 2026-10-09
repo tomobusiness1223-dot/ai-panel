@@ -23,6 +23,8 @@ class Panelist(Base):
     consented_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
     status: Mapped[str] = mapped_column(String(20), default="active")
     completion_code: Mapped[str | None] = mapped_column(String(10), index=True)   # クラウドワークス等の作業と突合するためのコード
+    source: Mapped[str | None] = mapped_column(String(20), default="line")          # line / crowdworks
+    external_ref: Mapped[str | None] = mapped_column(String(60), index=True)         # 取り込み元の作業ID（例：cw:95198698）。個人名は入れない
     attributes: Mapped[list["PanelistAttribute"]] = relationship(back_populates="panelist")
 
 class PanelistAttribute(Base):
@@ -41,6 +43,7 @@ class PanelistAttribute(Base):
     usage_freq: Mapped[str | None] = mapped_column(String(20))
     started_at: Mapped[str | None] = mapped_column(String(20))
     device: Mapped[str | None] = mapped_column(String(10))
+    shopping_ai_freq: Mapped[str | None] = mapped_column(String(10))   # 買い物の相談で AI を使う頻度：often / sometimes / never
     panelist: Mapped[Panelist] = relationship(back_populates="attributes")
 
 class Category(Base):
@@ -149,6 +152,7 @@ class SubmissionReaction(Base):
     picked_mention_id: Mapped[int | None] = mapped_column(ForeignKey("mention.id"))
     picked_none: Mapped[bool] = mapped_column(Boolean, default=False)
     will_refer: Mapped[str | None] = mapped_column(String(10))       # yes / no / unknown
+    picked_text: Mapped[str | None] = mapped_column(Text)            # 自由記述で答えた「気になった商品」（クラウドワークス取り込み）
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
 
 class OwnAnswer(Base):

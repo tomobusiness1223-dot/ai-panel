@@ -41,3 +41,15 @@ DEV_MODE=1 .venv/bin/uvicorn server.app:app --reload --port 8000
 2. LINE Developers でログインチャネル → LIFF アプリを追加（エンドポイント URL＝このサーバーの公開 URL、スコープ profile, openid）
 3. `LINE_CHANNEL_ID`（ログインチャネルのID）と `LIFF_ID` をサーバーに設定
 4. リッチメニュー：「今週のお題」「ポイント」「使い方」→ いずれも LIFF の URL
+
+## クラウドワークスで集めた回答の取り込み
+
+クラウドワークスは外部（LINE など）への誘導ができないため、回答は作業フォームで受け取り、出力した CSV を取り込む。設問の文面は `../debates/20261006-ai-panel-platform/recruit/crowdworks-task-A.md` / `-B.md`。
+
+```bash
+.venv/bin/python tools/import_crowdworks.py A <タスクAのCSV>     # お題型（前提＋3カテゴリ）
+.venv/bin/python tools/import_crowdworks.py B <タスクBのCSV>     # 実会話型
+.venv/bin/python tools/import_crowdworks.py status                 # work/cw_status.csv（承認判断用）
+```
+
+取り込んだ回答は LINE 経由と同じ処理に乗る。同じ作業IDの同じお題は二重に入らない。`--dry` で送らずに読み取り内容だけ確認できる。

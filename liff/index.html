@@ -97,6 +97,7 @@ function renderRegister(){
   <label>ChatGPTのメモリ機能（あなたのことを覚えておく機能）</label><select id="memory_setting"><option value="">選んでください</option><option value="on">ONにしている</option><option value="off">OFFにしている</option><option value="unknown">分からない</option></select>
   <label>ChatGPTを使う頻度</label><select id="usage_freq"><option value="">選んでください</option><option value="daily">ほぼ毎日</option><option value="weekly_several">週に数回</option><option value="weekly">週1回くらい</option><option value="monthly">月に数回以下</option></select>
   <label>使い始めた時期</label><select id="started_at"><option value="">選んでください</option><option value="lt3m">3か月未満</option><option value="3m_1y">3か月〜1年</option><option value="gt1y">1年以上</option></select>
+  <label>買い物やサービス選びで、ChatGPT に相談することはありますか</label><select id="shopping_ai_freq"><option value="">選んでください</option><option value="often">よくある</option><option value="sometimes">たまにある</option><option value="never">ほとんどない</option></select>
   <label>主に使う端末</label><select id="device"><option value="">選んでください</option><option value="iphone">iPhone</option><option value="android">Android</option><option value="pc">パソコン</option></select>
   <details style="margin-top:12px" id="consentbox"><summary style="cursor:pointer;color:var(--accent)">回答の利用目的と個人情報の取り扱い（全文）</summary>
   <div class="muted" style="font-size:13px;line-height:1.7;margin-top:8px">
@@ -111,7 +112,7 @@ function renderRegister(){
   <div class="radios" style="margin-top:8px"><label><input type="checkbox" id="consent"> 上記の利用目的と個人情報の取り扱いに同意する</label></div>
   <button class="btn" id="reg">登録する</button><div id="regmsg"></div></div>`;
   $("#reg").onclick=async()=>{
-    const ids=["gender","birth_year","prefecture","household","ai_plan","memory_setting","usage_freq","started_at","device"];
+    const ids=["gender","birth_year","prefecture","household","ai_plan","memory_setting","usage_freq","started_at","shopping_ai_freq","device"];
     const body={consent:$("#consent").checked};
     for(const k of ids){const v=$("#"+k).value;if(!v){$("#regmsg").innerHTML=`<div class="msg ng">すべての項目を選んでください</div>`;return;}body[k]=k==="birth_year"?Number(v):v;}
     try{await api("/api/register",{method:"POST",body});await load();}catch(e){$("#regmsg").innerHTML=`<div class="msg ng">${e.message}</div>`;}

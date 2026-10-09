@@ -89,6 +89,7 @@ class RegisterIn(BaseModel):
     usage_freq: str | None = None
     started_at: str | None = None
     device: str | None = None
+    shopping_ai_freq: str | None = None
     consent: bool = False
 
 @app.post("/api/register")
@@ -263,6 +264,119 @@ def admin_summary(token: str, db: Session = Depends(get_db)):
     admin(token)
     by = db.execute(select(Submission.accept_status, Submission.match_status, func.count()).group_by(Submission.accept_status, Submission.match_status)).all()
     return {"panelists": db.scalar(select(func.count(Panelist.id))), "submissions": [{"accept": a, "match": m, "n": n} for a, m, n in by]}
+
+class ImportItem(BaseModel):
+    topic_key: str                          # お題のカテゴリ key（toner / credit_card / protein / premise / own）
+    link_url: str = ""
+    own_brand_text: str | None = None
+    intent: str | None = None
+    picked_text: str | None = None          # 気になった商品（自由記述）
+    will_refer: str | None = None
+    genre_key: str | None = None            # own のとき
+    own_category: str | None = None
+    outcome: str | None = None
+    chosen_text: str | None = None
+    appeal_tags: list[str] = []
+    rejection_tags: list[str] = []
+    other_text: str | None = None
+
+class ImportIn(BaseModel):
+    source: str = "crowdworks"
+    external_id: str                        # 作業ID
+    attributes: dict = {}
+    items: list[ImportItem] = []
+
+def _process_import(sub_ids: list[int], reactions: dict):
+    """取り込んだ提出を順に処理し、自由記述の「気になった商品」を読み取った推薦に結び付ける。"""
+    for sid in sub_ids:
+        process_submission(sid)
+        rx = reactions.get(sid)
+        if not rx:
+            continue
+        db = SessionLocal()
+        try:
+            s = db.get(Submission, sid)
+            if not s or s.accept_status not in ("accepted", "reference"):
+                continue
+            r = db.scalar(select(Response).where(Response.submission_id == sid))
+            ms = db.execute(select(Mention, Brand).join(Brand, Mention.brand_id == Brand.id).where(Mention.response_id == r.id, Mention.mention_type == "recommended").order_by(Mention.rank)).all() if r else []
+            txt = (rx.get("picked_text") or "").strip()
+            none = (not txt) or txt in ("なし", "ない", "特になし", "無し")
+            picked = None
+            if not none:
+                from pipeline.extract import compile_brands
+                brands = [(b.id, b.canonical_name, b.aliases, b.maker) for _, b in ms]
+                for bid, name, pat, _mk in compile_brands(brands):
+                    if pat.search(txt):
+                        picked = next(m.id for m, b in ms if b.id == bid); break
+                if picked is None:
+                    for m, b in ms:   # 商品名の一部一致
+                        pt = (m.product_text or "")
+                        if pt and (txt in pt or pt in txt or any(w and len(w) >= 3 and w in txt for w in pt.split())):
+                            picked = m.id; break
+            db.query(SubmissionReaction).filter_by(submission_id=sid).delete()
+            db.add(SubmissionReaction(submission_id=sid, picked_mention_id=picked, picked_none=none, will_refer=rx.get("will_refer"), picked_text=txt or None))
+            db.commit()
+        finally:
+            db.close()
+
+@app.post("/api/admin/import")
+def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = Depends(get_db)):
+    """クラウドワークスなど、LINE を通さずに集めた回答を取り込む。同じ作業IDの同じお題は二重に入れない。"""
+    admin(token)
+    ref = f"{'cw' if body.source == 'crowdworks' else body.source}:{body.external_id}"
+    h = hashlib.sha256(ref.encode()).hexdigest()
+    p = db.scalar(select(Panelist).where(Panelist.line_user_hash == h))
+    if not p:
+        p = Panelist(line_user_hash=h, line_user_id_enc="", consent_version=CONSENT_VERSION, source=body.source, external_ref=ref)
+        db.add(p); db.flush()
+        allowed = set(RegisterIn.model_fields) - {"consent"}
+        db.add(PanelistAttribute(panelist_id=p.id, **{k: v for k, v in body.attributes.items() if k in allowed}))
+    t = now()
+    topics = {c.key: tp for tp, c in db.execute(select(Topic, Category).join(Category, Topic.category_id == Category.id)
+                                                .where(Topic.opens_at <= t, (Topic.closes_at.is_(None)) | (Topic.closes_at > t)))}
+    created, skipped, errors, reactions = [], [], [], {}
+    for it in body.items:
+        tp = topics.get(it.topic_key)
+        if not tp:
+            errors.append({"topic": it.topic_key, "error": "お題がありません"}); continue
+        link_type, reason = classify_link(it.link_url)
+        existing = db.scalars(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == tp.id)).all()
+        if any(e.link_url == it.link_url.strip() for e in existing) or (tp.mode != "own" and any(e.accept_status in ("accepted", "reference", "pending") for e in existing)):
+            skipped.append(it.topic_key); continue
+        genre_key, own_label, pts = None, None, None
+        if tp.mode == "own":
+            gk = (it.genre_key or "").strip()
+            if gk in GENRE_INDEX:
+                genre_key, own_label, pts = gk, GENRE_INDEX[gk]["name"], GENRE_INDEX[gk]["points"]
+            else:
+                genre_key, own_label, pts = "other", (it.own_category or "その他").strip()[:60], GENRES["other_points"]
+        s = Submission(panelist_id=p.id, topic_id=tp.id, link_url=it.link_url.strip(), link_type=link_type,
+                       own_brand_text=(it.own_brand_text or "").strip() or None, intent=it.intent, own_category=own_label, genre_key=genre_key, point_value=pts)
+        if reason:   # リンクの形が不正：取りに行かずに不受理として記録（承認判断に使う）
+            s.fetch_status, s.match_status, s.accept_status, s.reject_reason = "skipped", "fail", "rejected", reason
+        db.add(s); db.flush()
+        if tp.mode == "own":
+            db.add(OwnAnswer(submission_id=s.id, outcome=it.outcome or "considering", chosen_text=(it.chosen_text or "").strip() or None,
+                             appeal_tags=",".join(it.appeal_tags), rejection_tags=",".join(it.rejection_tags), other_text=(it.other_text or "").strip() or None))
+        if not reason:
+            created.append(s.id)
+            if it.picked_text is not None or it.will_refer:
+                reactions[s.id] = {"picked_text": it.picked_text, "will_refer": it.will_refer}
+    db.commit()
+    bg.add_task(_process_import, created, reactions)
+    return {"panelist_id": p.id, "queued": len(created), "skipped": skipped, "errors": errors}
+
+@app.get("/api/admin/import_status")
+def admin_import_status(token: str, source: str = "crowdworks", db: Session = Depends(get_db)):
+    """取り込んだ作業IDごとの結果（承認判断用）。"""
+    admin(token)
+    out = []
+    for p in db.scalars(select(Panelist).where(Panelist.source == source).order_by(Panelist.id)):
+        rows = db.execute(select(Submission, Category.key).join(Topic, Submission.topic_id == Topic.id).join(Category, Topic.category_id == Category.id).where(Submission.panelist_id == p.id).order_by(Submission.id)).all()
+        out.append({"external_ref": p.external_ref, "panelist_id": p.id,
+                    "items": [{"topic": k, "accept_status": s.accept_status, "match_status": s.match_status, "reason": s.reject_reason} for s, k in rows]})
+    return out
 
 @app.get("/api/admin/completions")
 def admin_completions(token: str, db: Session = Depends(get_db)):
