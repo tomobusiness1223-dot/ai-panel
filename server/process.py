@@ -110,6 +110,7 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
                 sub.reject_reason = "ChatGPT からの質問に答える前に共有されています。同じチャットで質問に答え、答えを踏まえたおすすめが出てから、もう一度「共有」でリンクを作り直して貼ってください。（質問に答えたくない場合は「おまかせします。おすすめを教えてください。」と送ってください）"
                 db.commit(); return
             mr.status, mr.note = "early", (mr.note or "") + "／質問に答える前に共有（最初の推薦のみ）"
+            sub.match_status = "early"
         names = llm.find_person_names(mr.answer)
         found = extract_brands(mr.answer, compiled, mention_classifier=llm.classify_mentions if llm.available() else None)
         used_search = any(m.has_citation for m in res.messages if m.role == "assistant")
