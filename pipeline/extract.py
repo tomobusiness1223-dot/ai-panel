@@ -4,6 +4,7 @@ import re, unicodedata, difflib, dataclasses
 from .fetch import Message
 
 FALLBACK_PROMPT = "おまかせします。おすすめを5つ教えてください。"
+FALLBACK_PROMPTS = (FALLBACK_PROMPT, "おまかせします。おすすめを教えてください。")
 LENGTH_HINT = re.compile(r"(\d{2,4}\s*(字|文字)|簡潔|短く|箇条書き|まとめて|要約)")
 
 def norm(s: str) -> str:
@@ -56,7 +57,7 @@ def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> 
             return MatchResult(first_k, ans, j)
         # 2回目以降のユーザー発言
         second_text = users[1][1].text
-        if norm(second_text) == norm(FALLBACK_PROMPT):
+        if norm(second_text) in {norm(x) for x in FALLBACK_PROMPTS}:
             j2, ans2 = answer_after(users[1][0])
             # 1回目が質問返しだった場合は2回目の回答を使う（定型文ルール）
             return MatchResult("fallback", ans2 or ans, j2 if ans2 else j, "定型文を1回送った")
@@ -127,7 +128,7 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v6"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+EXTRACT_VERSION = "v7"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 
@@ -254,6 +255,24 @@ def pick_dialog_answer(messages: list[Message], compiled) -> tuple[str, int, str
     if n_lists > 1:
         note += f"。途中にも推薦つきの回答が{n_lists - 1}件あり"
     return (best[0], best[1], note)
+
+ASKS = re.compile(r"[?？]|教えてください|お聞かせ|お知らせください|選んでください|どれに近い|ありますか|ですか")
+
+def stage_info(messages: list[Message], compiled) -> dict:
+    """2段階の質問文（先に薦めてから質問）の会話を調べる。
+    first＝推薦を含む最初の回答、final＝推薦を含む最後の回答。early＝AI が質問しているのに参加者が答える前に共有された。"""
+    recs = []
+    for i, m in enumerate(messages):
+        if m.role == "assistant" and any(f.mention_type == "recommended" for f in extract_brands(m.text, compiled)):
+            recs.append(i)
+    users = [i for i, m in enumerate(messages) if m.role == "user"]
+    assistants = [i for i, m in enumerate(messages) if m.role == "assistant"]
+    replied = len(users) >= 2
+    last_ai = messages[assistants[-1]].text if assistants else ""
+    tail = last_ai[-400:]
+    asks = len(ASKS.findall(tail)) >= 1
+    return {"first": recs[0] if recs else None, "final": recs[-1] if recs else None, "n_stages": len(recs),
+            "early": bool(assistants) and not replied and asks}
 
 # ---- 個人化の手がかり（規則版。LLM版は classifier_version を変えて置き換える） ----
 STRONG = re.compile(r"(以前|前回|先日|前に|これまで)(の|に)?(ご)?(お話|話し|伺|おっしゃ|聞い|教えて|相談|購入|お使い|会話|やり取り)|(と|を)伺っています|ご利用中の|現在(お使い|ご利用|保有)|お使いの|お持ちの|ご登録|プロフィール|[一-鿿]{1,4}(さん|様)(の|、|は)|妊娠|お子さ|お子様|ご家族|ご主人|奥様|iPhone\s?\d{1,2}|Pixel\s?\d|Galaxy\s?S\d")

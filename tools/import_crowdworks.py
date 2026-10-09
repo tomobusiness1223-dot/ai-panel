@@ -93,12 +93,13 @@ def main():
         r = httpx.get(f"{BASE}/api/admin/import_status", params={"token": token()}, timeout=120); r.raise_for_status()
         WORK.mkdir(exist_ok=True)
         with open(WORK / "cw_status.csv", "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f); w.writerow(["作業ID", "受付数", "不受理数", "処理中", "判定の目安", "内訳"])
+            w = csv.writer(f); w.writerow(["作業ID", "受付数", "不受理数", "処理中", "質問に答える前の共有", "判定の目安", "内訳"])
             for p in r.json():
                 ok = sum(1 for i in p["items"] if i["accept_status"] in ("accepted", "reference")); ng = sum(1 for i in p["items"] if i["accept_status"] == "rejected"); pend = sum(1 for i in p["items"] if i["accept_status"] == "pending")
                 core = sum(1 for i in p["items"] if i["topic"] in ("toner", "credit_card", "protein", "own") and i["accept_status"] in ("accepted", "reference"))
-                w.writerow([p["external_ref"].split(":", 1)[-1], ok, ng, pend, "承認" if core >= 1 and not pend else ("処理中" if pend else "要確認"),
-                            " / ".join(f'{i["topic"]}:{i["accept_status"]}' + (f'（{i["reason"][:20]}）' if i["reason"] else "") for i in p["items"])])
+                early = sum(1 for i in p["items"] if i["match_status"] == "early")
+                w.writerow([p["external_ref"].split(":", 1)[-1], ok, ng, pend, early, "処理中" if pend else ("要確認" if core == 0 or (early and early >= core) else "承認"),
+                            " / ".join(f'{i["topic"]}:{i["match_status"] or i["accept_status"]}' + (f'（{i["reason"][:20]}）' if i["reason"] else "") for i in p["items"])])
         print(f"work/cw_status.csv に {len(r.json())} 人分を出力")
         return
     kind, path = args[0], args[1]

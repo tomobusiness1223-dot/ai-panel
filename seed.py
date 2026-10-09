@@ -7,7 +7,13 @@ from sqlalchemy import select, func
 from server.db import SessionLocal, init_db, Category, Brand, Topic, now
 
 PROMPT_V1 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。"
-PROMPT = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。私に合った提案にするために、必要なら先に質問して、回答の質を上げてください。"  # v2：ヒアリングあり
+PROMPT_V2 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。私に合った提案にするために、必要なら先に質問して、回答の質を上げてください。"
+# v3（2026-10-09）：数は指定せず順位を付けさせる。先に「いま分かっている範囲」で薦めさせてから質問させ、
+# 1つの会話で「前提だけの推薦（最初）→ 会話後の推薦（最終）」の2段階を取る
+PROMPT = "{lead}まず、いま分かっている範囲で、私におすすめの{item}を、順位をつけて{unit}と理由つきで教えてください。そのうえで、もっと私に合う提案にするために聞きたいことがあれば質問してください。"
+LEAD = {"toner": ("化粧水を買おうと思っています。", "商品", "商品名"), "credit_card": ("クレジットカードを新しく作ろうと思っています。", "カード", "カード名"),
+        "protein": ("プロテインを買おうと思っています。", "商品", "商品名"), "shampoo": ("シャンプーを買おうと思っています。", "商品", "商品名"),
+        "earbuds": ("ワイヤレスイヤホンを買おうと思っています。", "商品", "商品名"), "vod": ("動画配信サービスを契約しようと思っています。", "サービス", "サービス名")}
 CATEGORIES = [
     # key, 表示名, 質問に入れる名前, 単位の言い方, 型
     ("toner", "化粧水", "化粧水", "ブランド名", "unknown"),
@@ -102,16 +108,17 @@ def run():
         c = db.scalar(select(Category).where(Category.key == key))
         if not c:
             c = Category(key=key, name=name, type=ctype); db.add(c); db.flush()
-        for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v1", Topic.closes_at.is_(None))):
-            t.closes_at = now()  # v1（ヒアリングなし）は締める
-        t2 = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_version == "v2"))
-        if not t2:
-            t2 = Topic(category_id=c.id, prompt_text=PROMPT.format(cat=cname, unit=unit), prompt_version="v2", point_value=30, mode="dialog")
-            db.add(t2); db.flush()
-        t2.mode, t2.required = "dialog", True   # 列をあとから足したとき（既存行が NULL）に備えて毎回そろえる
-        if key in CLOSED:        # 2回目の収集では出さないカテゴリ（検証実験のもの）
-            for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None))):
-                t.closes_at = now()
+        lead, item, unit3 = LEAD[key]
+        prompt = PROMPT.format(lead=lead, item=item, unit=unit3)
+        for t in db.scalars(select(Topic).where(Topic.category_id == c.id, Topic.closes_at.is_(None), Topic.prompt_text != prompt)):
+            t.closes_at = now()   # 旧い質問文の版は締める（提出済みの記録はそのまま）
+        t3 = db.scalar(select(Topic).where(Topic.category_id == c.id, Topic.prompt_text == prompt).order_by(Topic.id.desc()))
+        if not t3:
+            ver = "v%d" % (db.scalar(select(func.count(Topic.id)).where(Topic.category_id == c.id)) + 1)
+            t3 = Topic(category_id=c.id, prompt_text=prompt, prompt_version=ver, point_value=30, mode="dialog")
+            db.add(t3); db.flush()
+        t3.mode, t3.required = "dialog", True
+        t3.closes_at = now() if key in CLOSED else None   # 2回目の収集で出さないカテゴリは締めておく
         have = {b.canonical_name: b for b in db.scalars(select(Brand).where(Brand.category_id == c.id))}
         for canon, aliases in BRANDS.get(key, {}).items():
             al = "\n".join(a for a in aliases.split("|") if a)

@@ -3,10 +3,10 @@ from __future__ import annotations
 import os, json, hashlib
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from .db import SessionLocal, Submission, Topic, Category, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
+from .db import SessionLocal, Panelist, Submission, Topic, Category, Brand, Response, Mention, OwnBrand, PersonalizationSignal, PointLedger, ConversationTurn, Source, now
 from pipeline.fetch import fetch_sync
 from pipeline.share_html import fetch_share_html
-from pipeline.extract import EXTRACT_VERSION, MatchResult, match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer
+from pipeline.extract import EXTRACT_VERSION, MatchResult, match_prompt, compile_brands, extract_brands, personalization_level, own_brand_lookup, pick_dialog_answer, stage_info
 from pipeline.redact import redact
 from pipeline import llm
 
@@ -94,19 +94,35 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
             if ans:
                 mr.answer, mr.answer_index, mr.note = ans, idx, note
             print(f"[process] sub={sub.id} dialog answer_index={idx} note={note}", flush=True)
+        st = stage_info(res.messages, compiled) if (topic.mode == "dialog" and compiled) else None
+        if st and st["early"]:
+            # AI が質問しているのに、答える前に共有された。LINE ではその場で出し直してもらう。取り込み（クラウドワークス）は出し直せないので参考扱い
+            pan = db.get(Panelist, sub.panelist_id)
+            if not reprocess and (pan is None or (pan.source or "line") == "line"):
+                sub.match_status, sub.accept_status = "early", "rejected"
+                sub.reject_reason = "ChatGPT からの質問に答える前に共有されています。同じチャットで質問に答え、答えを踏まえたおすすめが出てから、もう一度「共有」でリンクを作り直して貼ってください。（質問に答えたくない場合は「おまかせします。おすすめを教えてください。」と送ってください）"
+                db.commit(); return
+            mr.status, mr.note = "early", (mr.note or "") + "／質問に答える前に共有（最初の推薦のみ）"
         names = llm.find_person_names(mr.answer)
         found = extract_brands(mr.answer, compiled, mention_classifier=llm.classify_mentions if llm.available() else None)
         used_search = any(m.has_citation for m in res.messages if m.role == "assistant")
         resp = Response(submission_id=sub.id, used_search=used_search, raw_text_ref=raw_ref,
                         redacted_text=redact(mr.answer, names), message_count=len(res.messages),
                         extract_status="ok" if any(f.mention_type == "recommended" for f in found) else "none",
-                        extract_version=EXTRACT_VERSION, answer_note=mr.note)
+                        extract_version=EXTRACT_VERSION, answer_note=mr.note,
+                        n_stages=st["n_stages"] if st else None, first_index=st["first"] if st else None)
         db.add(resp); db.flush()
         cv = llm.VERSION if llm.available() else "rules-v0"
         for f in found:
             db.add(Mention(response_id=resp.id, brand_id=f.brand_id, mention_type=f.mention_type,
                            rank=f.rank if f.mention_type == "recommended" else None, is_numbered=f.is_numbered, classifier_version=cv,
                            product_text=f.product or None, is_primary=f.primary))
+        # 最初の回答（質問される前＝前提だけの推薦）の推薦も、stage="first" として残す
+        if st and st["first"] is not None:
+            for f in extract_brands(res.messages[st["first"]].text, compiled, mention_classifier=llm.classify_mentions if llm.available() else None):
+                if f.mention_type == "recommended":
+                    db.add(Mention(response_id=resp.id, brand_id=f.brand_id, mention_type=f.mention_type, rank=f.rank, is_numbered=f.is_numbered,
+                                   classifier_version=cv, product_text=f.product or None, is_primary=f.primary, stage="first"))
         # 個人化の手がかりは、AIからの質問も含めた会話全体で見る（「以前の相談では…」は質問の側に出やすい）
         all_ai = "\n".join(m.text for i, m in enumerate(res.messages) if m.role == "assistant" and i <= max(mr.answer_index, 0))
         lv = llm.classify_personalization(all_ai) or personalization_level(all_ai)
@@ -128,7 +144,8 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
             db.add(ConversationTurn(submission_id=sub.id, idx=i, role=m.role, kind=kind, redacted_text=redact(m.text, names), n_sources=len(m.sources)))
             for sc in m.sources:
                 db.add(Source(submission_id=sub.id, turn_idx=i, is_answer_turn=(i == mr.answer_index), domain=sc["domain"][:120], url=sc["url"], title=sc.get("title")))
-        sub.accept_status = "accepted" if mr.status in ("ok", "typo", "dialog", "own") else "reference"
+        ok_status = ("ok", "typo", "dialog", "own") + (("fallback",) if topic.mode == "dialog" else ())   # 2段階の質問文では「おまかせします」も正規の進め方
+        sub.accept_status = "accepted" if mr.status in ok_status else "reference"
         if not reprocess:
             db.add(PointLedger(panelist_id=sub.panelist_id, delta=sub.point_value or topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
         db.commit()

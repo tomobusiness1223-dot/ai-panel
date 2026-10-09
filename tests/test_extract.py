@@ -125,3 +125,22 @@ def test_redact_does_not_eat_common_words():
     s = "最新の商品情報、価格、仕様、特典を重視。詳細仕様、同様に、多様な、模様。摂氏30度、彼氏に。"
     assert redact(s) == s
     assert "〇〇様" in redact("山田様、ご確認ください") and "〇〇氏" in redact("担当の佐藤氏は")
+
+
+def test_two_stage_conversation():
+    from pipeline.extract import stage_info, pick_dialog_answer
+    comp = compile_brands([(i, n, "") for i, n in enumerate(["A社", "B社", "C社", "D社"])])
+    P3 = "化粧水を買おうと思っています。まず、いま分かっている範囲で、私におすすめの商品を、順位をつけて商品名と理由つきで教えてください。そのうえで、もっと私に合う提案にするために聞きたいことがあれば質問してください。"
+    first = "いま分かっている範囲では\n1. A社 ローション\n2. B社 化粧水\n3. C社\n\nもっと合う提案にするため、肌質と予算を教えてください。"
+    final = "ありがとうございます。乾燥肌なら\n1. C社 しっとり\n2. A社 ローション"
+    full = [Message("user", P3), Message("assistant", first), Message("user", "乾燥肌、3000円まで"), Message("assistant", final)]
+    st = stage_info(full, comp)
+    assert (st["first"], st["final"], st["n_stages"], st["early"]) == (1, 3, 2, False)
+    assert match_prompt(P3, full, mode="dialog").status == "dialog" and pick_dialog_answer(full, comp)[1] == 3
+    early = full[:2]                       # 質問に答える前に共有
+    assert stage_info(early, comp)["early"] is True
+    noask = [Message("user", P3), Message("assistant", "1. A社\n2. B社\n以上がおすすめです。")]   # AI が質問しなかった
+    st2 = stage_info(noask, comp)
+    assert st2["early"] is False and st2["first"] == st2["final"] == 1
+    omakase = full[:2] + [Message("user", "おまかせします。おすすめを教えてください。"), Message("assistant", "では\n1. B社\n2. A社")]
+    assert match_prompt(P3, omakase, mode="dialog").status == "fallback"

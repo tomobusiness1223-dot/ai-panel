@@ -106,6 +106,8 @@ class Response(Base):
     fetched_at: Mapped[dt.datetime] = mapped_column(DateTime, default=now)
     extract_version: Mapped[str | None] = mapped_column(String(10))  # 抽出ルールの版
     answer_note: Mapped[str | None] = mapped_column(Text)            # どの回答を使ったか
+    n_stages: Mapped[int | None] = mapped_column(Integer)            # 推薦を含む回答の数（1＝一段階のみ、2以上＝最初と最終がある）
+    first_index: Mapped[int | None] = mapped_column(Integer)         # 最初の推薦の発言位置
 
 class Mention(Base):
     __tablename__ = "mention"
@@ -118,6 +120,7 @@ class Mention(Base):
     classifier_version: Mapped[str] = mapped_column(String(20), default="rules-v0")
     product_text: Mapped[str | None] = mapped_column(Text)           # 回答に書かれていた商品名
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True)   # ブランド単位の集計に使う行（同じブランドの最上位）
+    stage: Mapped[str] = mapped_column(String(10), default="final")   # final＝会話の結論の推薦 / first＝最初の回答の推薦（質問される前）
 
 class OwnBrand(Base):
     __tablename__ = "own_brand"
