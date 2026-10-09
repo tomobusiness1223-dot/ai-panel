@@ -30,6 +30,8 @@ DEV_MODE=1 .venv/bin/uvicorn server.app:app --reload --port 8000
 - `/api/admin/summary?token=…` … 受付状況
 - `/api/admin/unmapped?token=…` … 辞書に当たらなかった現使用ブランド（週1回の辞書更新）
 - `/api/admin/export/{participants|responses|mentions|own_brand}?token=…&scope=main|wide` … 分析用 CSV（検証実験の analyze.py / dashboard と同じ形式）
+- `POST /api/admin/backfill?token=…&all=0|1` … 読み取り規則や辞書を直したあと、受付済みの提出を作り直す（起動時にも extract_version が古いものは自動で作り直す。共有ページが混雑時に会話データ無しを返した分は飛ばされるので、あとでもう一度叩く）
+- `POST /api/admin/resume?token=…` … サーバー再起動で pending のまま残った提出を処理し直す
 
 ## テスト
 ```bash
