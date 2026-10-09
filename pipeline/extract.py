@@ -127,7 +127,7 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v5"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+EXTRACT_VERSION = "v6"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 

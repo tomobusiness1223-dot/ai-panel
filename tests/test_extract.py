@@ -119,3 +119,9 @@ def test_conditions_and_form_code():
     raw = '質問です。\n{@body const [skin,setSkin] = DIL.useState("unknown")}\nGenUI.issueNewTurn("x："+skin)}>\n1. 肌質は？\n<radio-group value={skin} onChange={setSkin}>\n脂性肌\n</radio-group>'
     c = clean_markup(raw)
     assert "DIL" not in c and "GenUI" not in c and "1. 肌質は？" in c and "脂性肌" in c
+
+
+def test_redact_does_not_eat_common_words():
+    s = "最新の商品情報、価格、仕様、特典を重視。詳細仕様、同様に、多様な、模様。摂氏30度、彼氏に。"
+    assert redact(s) == s
+    assert "〇〇様" in redact("山田様、ご確認ください") and "〇〇氏" in redact("担当の佐藤氏は")

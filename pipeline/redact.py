@@ -8,9 +8,17 @@ NAME_STOP = {"皆", "客", "子", "嬢", "宅", "娘", "孫", "嫁", "婿", "姑
 ADDRESS = re.compile(r"(東京都|北海道|(?:京都|大阪)府|[一-鿿]{2,3}県)[一-鿿]{1,6}(市|区|町|村)[一-鿿\d丁目番地号ー－-]{0,20}")
 BIRTH = re.compile(r"(19|20)\d{2}年\s?\d{1,2}月\s?\d{1,2}日生?まれ?")
 
+# 「様」「氏」で終わる普通の言葉（仕様、同様、模様、彼氏、摂氏 など）。語の末尾がこれなら人名として扱わない
+SAMA_WORDS = ("仕", "模", "多", "同", "異", "一", "各", "有", "逆", "左", "無", "態", "図", "紋", "今", "外", "何", "貴", "上", "神", "仏", "王", "殿", "姫", "皆", "客", "奥", "別", "不", "両")
+SHI_WORDS = ("彼", "同", "両", "諸", "源", "平", "華", "摂", "某", "各")
+
 def _name_sub(m: re.Match) -> str:
-    base = m.group(1)
+    base, hon = m.group(1), m.group(2)
     if base in NAME_STOP:
+        return m.group(0)
+    if hon == "様" and base.endswith(SAMA_WORDS):
+        return m.group(0)
+    if hon == "氏" and base.endswith(SHI_WORDS):
         return m.group(0)
     return "〇〇" + m.group(2)
 
