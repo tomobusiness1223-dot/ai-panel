@@ -52,9 +52,11 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
                 db.query(T).filter_by(submission_id=sub.id).delete()
             db.flush()
         topic = db.get(Topic, sub.topic_id)
-        res = fetch_share_html(sub.link_url)          # まず HTML から（速い）
-        if res.status == "error":
-            res = fetch_sync(sub.link_url)             # 埋め込みデータが無い形式（s/t_ など）はブラウザで
+        res = fetch_share_html(sub.link_url)          # HTML の埋め込みデータから読む（share/ と s/t_ の両方に対応）
+        if res.status == "error" and os.environ.get("USE_BROWSER_FALLBACK") == "1":
+            res = fetch_sync(sub.link_url)             # ブラウザでの取得は開発時のみ（本番の小さなサーバーではメモリ不足で落ちる）
+        if res.status == "error" and "no embedded data" in (res.error or ""):
+            res.status = "invalid"                     # 会話データの無いページ＝開けない共有リンクとして扱う
         if reprocess and res.status != "ok":
             print(f"[process] sub={sub.id} reprocess skipped: fetch={res.status} {res.error}", flush=True)
             db.rollback(); return

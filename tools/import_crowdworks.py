@@ -3,6 +3,7 @@
   python tools/import_crowdworks.py A path/to/タスクA.csv      # お題型（前提＋3カテゴリ）
   python tools/import_crowdworks.py B path/to/タスクB.csv      # 実会話型
   python tools/import_crowdworks.py status                      # 取り込み結果（承認判断用）を work/cw_status.csv に出す
+  python tools/import_crowdworks.py resume                      # 処理が止まった提出（pending）を再開する
   オプション --dry : 送らずに、読み取った内容だけ表示
 
 CSV の列は、設問文に含まれる目印の語で探す（設問番号がずれても動く）。選択式の設問は「番号, 選択肢名」の2列になるので、選択肢名の列を読む。
@@ -114,7 +115,9 @@ def main():
     if not args:
         print(__doc__); return
     if args[0] == "status":
-        r = httpx.get(f"{BASE}/api/admin/import_status", params={"token": token()}, timeout=120); r.raise_for_status()
+        r = httpx.get(f"{BASE}/api/admin/import_status", params={"token": token()}, timeout=120)
+        if r.status_code != 200:
+            sys.exit(f"サーバーが {r.status_code} を返しました。少し待ってからもう一度実行してください")
         WORK.mkdir(exist_ok=True)
         with open(WORK / "cw_status.csv", "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f); w.writerow(["作業ID", "受付数", "不受理数", "処理中", "質問に答える前の共有", "判定の目安", "内訳"])

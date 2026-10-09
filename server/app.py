@@ -31,6 +31,12 @@ CONSENT_VERSION = "v1"
 app = FastAPI(title="ai-panel")
 init_db()
 
+@app.on_event("startup")
+def _resume_on_startup():
+    import threading
+    from .backfill import resume_pending
+    threading.Thread(target=resume_pending, args=(1,), daemon=True).start()
+
 def get_db():
     db = SessionLocal()
     try:
@@ -392,6 +398,14 @@ def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = 
     db.commit()
     bg.add_task(_process_import, created, reactions)
     return {"panelist_id": p.id, "queued": len(created), "skipped": skipped, "errors": errors}
+
+@app.post("/api/admin/resume")
+def admin_resume(token: str, bg: BackgroundTasks):
+    """pending のまま止まった提出を処理し直す（サーバー再起動のあとなど）。"""
+    admin(token)
+    from .backfill import resume_pending
+    bg.add_task(resume_pending, 1)
+    return {"ok": True}
 
 @app.get("/api/admin/import_status")
 def admin_import_status(token: str, source: str = "crowdworks", db: Session = Depends(get_db)):
