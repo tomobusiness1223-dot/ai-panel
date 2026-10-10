@@ -63,6 +63,7 @@ DEV_MODE=1 .venv/bin/uvicorn server.app:app --reload --port 8000
 .venv/bin/python tools/build_category_report.py toner --html <ひな形.html> <出力.html>
 ```
 
+ひな形は2つある（どちらも同じデータを埋め込む）：読み物の見本レポート `report_template.html` と、分析ツールの画面 `app_template.html`（ブランドの切り替え・比較、絞り込み、条件別の表、1人ずつの会話の流れ、表の保存）。
 本番から出力を取り直し、会話を「前提 → 最初の推薦 → AI の質問 → 答え → 最終の推薦」に分けた1人1行の記録（`work/report_toner.json`）と、それを埋め込んだ HTML を作る。集計は画面側で行うので、ブランドを切り替えて見られる。
 辞書は `pipeline/report_dict.json`（商品ライン、理由の分類、質問の分類、参照元の種類、前提の分類）。参加者の答えは `tools/annotate.py push` で条件の注釈として本番に入れておく（項目と値は `pipeline/conditions.json`）。実会話の事例は `work/cases_<カテゴリ>.json` に手で書く（参加者の言葉はそのまま載せる）。
 読み取り規則を変えたときは `EXTRACT_VERSION` を上げてデプロイすると、起動時に全件を作り直す（共有リンクが消えていても、受付時に保存した会話から作り直す）。

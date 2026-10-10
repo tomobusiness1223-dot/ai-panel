@@ -13,13 +13,14 @@ import sys, csv, json, re, collections, pathlib, subprocess, datetime
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "tools"))
 import report_lib as L
+import seed
 from pipeline.extract import MEMORY_MARK, memory_sentences, STRONG
 D = json.load(open(ROOT / "pipeline/report_dict.json", encoding="utf-8"))
 W = ROOT / "work"
 NAMES = ["participants", "responses", "turns", "own_brand", "premises", "sources", "own_answers", "conditions"]
 
 def clip(s, n=44):
-    s = re.sub(r"\s+", " ", s).strip(" 　*・-。")
+    s = re.sub(r"\s+", " ", s.replace("**", "")).strip(" 　*・-。")
     s = re.sub(r"^(?:おすすめの?理由|選定理由|理由|ポイント|特徴)\s*[:：]\s*", "", s)
     return s if len(s) <= n else s[:n - 1] + "…"
 
@@ -55,6 +56,19 @@ def who_of(text):
         if m and not re.search(r"\d\s*円", m.group(1)):
             return clip(m.group(1))
     return ""
+REASON = re.compile(r"(?:おすすめ(?:の|する)?理由|選定理由|選んだ理由|理由)\**\s*[:：]\**\s*(.+)")
+def reason_of(text):
+    """AI がその商品に付けた理由の、最初の一文（商品についての説明。本人の情報ではない）。"""
+    ls = body_lines(text)
+    for l in ls[:10]:
+        m = REASON.search(l)
+        if m and len(m.group(1).strip(" *")) >= 8:
+            return clip(m.group(1).split("。")[0], 74)
+    for l in ls[:8]:
+        t = l.strip(" *・-")
+        if len(t) >= 14 and not re.search(r"価格|\d\s*円|[¥￥]|m[lL]|商品情報|公式|購入先|販売", t):
+            return clip(t.split("。")[0], 74)
+    return ""
 def line_of(cat, brand, product):
     for name, pat in D[cat]["lines"].get(brand or "", []):
         if re.search(pat, product or ""):
@@ -70,7 +84,7 @@ def enrich(cat, items):
         if key in seen:
             continue
         seen.add(key)
-        out.append({"r": it["rank"], "b": it["brand"] or "", "l": ln, "p": clip(it["product"], 40), "y": price_of(it["text"]), "t": tags_of(cat, it["text"]), "w": who_of(it["text"])})
+        out.append({"r": it["rank"], "b": it["brand"] or "", "l": ln, "p": clip(it["product"], 40), "y": price_of(it["text"]), "t": tags_of(cat, it["text"]), "w": who_of(it["text"]), "x": reason_of(it["text"])})
     return out
 
 # ---- AI の質問 ----
@@ -144,7 +158,7 @@ def build(cat):
         ob = own.get(pid)
         p = {"pid": pid, "who": f"{a.get('age_decade') or '年代不明'}{ {'F': '女性', 'M': '男性'}.get(a.get('gender'), '') }",
              "g": a.get("gender", ""), "age": a.get("age_decade", ""), "memory": a.get("memory", ""), "freq": a.get("usage_freq", ""), "shop": a.get("shopping_ai_freq", ""),
-             "stage": stage, "asked": question_axes(cat, c["ask_text"]) if c["asked"] else [],
+             "stage": stage, "rounds": len(c["replies"]), "asked": question_axes(cat, c["ask_text"]) if c["asked"] else [],
              "conds": {k: v for k, v in conds.get(pid, {}).items()},
              "first": first if stage != "single" else [], "final": final if stage == "updated" else [], "single": first if stage == "single" else [],
              "own": {"b": (ob or {}).get("brand", ""), "raw": clip((ob or {}).get("raw_text", ""), 30)} if ob and (ob.get("raw_text") or "").strip() not in ("", "なし", "無し", "ない", "特になし") else None,
@@ -153,7 +167,8 @@ def build(cat):
              "src": sorted(([d, source_type(d)[0], n] for d, n in src.get(pid, {}).items()), key=lambda x: -x[2])}
         people.append(p)
     stages = collections.Counter(p["stage"] for p in people)
-    meta = {"category": cat, "n": len(people), "n_first": stages["updated"] + stages["first_only"], "n_updated": stages["updated"], "n_first_only": stages["first_only"], "n_single": stages["single"],
+    lead, item, unit = seed.LEAD[cat]
+    meta = {"category": cat, "label": next((n for k, n, *_ in seed.CATEGORIES if k == cat), cat), "prompt": seed.PROMPT.format(lead=lead, item=item, unit=unit), "n": len(people), "n_first": stages["updated"] + stages["first_only"], "n_updated": stages["updated"], "n_first_only": stages["first_only"], "n_single": stages["single"],
             "n_cond": sum(1 for p in people if p["conds"]), "n_asked": sum(1 for p in people if p["asked"]), "n_prem": sum(1 for p in people if p["prem"]),
             "n_src": sum(1 for p in people if p["src"]), "generated": datetime.date.today().isoformat()}
     labels = {d: v[1] for d, v in D["source_types"].items()}
