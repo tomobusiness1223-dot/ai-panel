@@ -56,15 +56,17 @@ print("\n■ 最初の推薦（質問される前）と最終の推薦の違い"
 fp = collections.defaultdict(list)
 for p in first:
     fp[(p["person_id"], p["category"])].append(p)
+# 分母は「質問に答えた会話」だけにする。答える前の共有は最初＝最終なので、入れると入れ替わりの割合が薄まる（2026-10-10 修正）
+answered = {(r["person_id"], r["category"]) for r in resp if r["match_status"] in ("dialog", "fallback")}
 for c in ("toner", "credit_card", "protein"):
-    ks = [k for k in fp if k[1] == c and k in pp]
+    ks = [k for k in fp if k[1] == c and k in pp and k in answered]
     if not ks: continue
     changed1 = sum(1 for k in ks if (next((p["brand"] for p in fp[k] if p["rank"] == "1"), None) != next((p["brand"] for p in pp[k] if p["rank"] == "1"), None)))
     gone = []
     for k in ks:
         fb = {p["brand"] for p in fp[k]}; lb = {p["brand"] for p in pp[k]}
         gone.append(len(fb - lb) / max(1, len(fb)))
-    print(f"  {CAT[c]:10s} 両方ある {len(ks)} 件、1位が入れ替わった {changed1} 件 ({changed1/len(ks):.0%})、最初の推薦のうち最終で消えた割合 平均 {sum(gone)/len(gone):.0%}")
+    print(f"  {CAT[c]:10s} 質問に答えた会話 {len(ks)} 件、1位が入れ替わった {changed1} 件 ({changed1/len(ks):.0%})、最初の推薦のうち最終で消えた割合 平均 {sum(gone)/len(gone):.0%}")
 # ---- 現使用ブランド ----
 print("\n■ いま使っているブランド")
 for c in ("toner", "credit_card", "protein"):

@@ -3,6 +3,7 @@
   python tools/import_crowdworks.py A path/to/タスクA.csv      # お題型（前提＋3カテゴリ）
   python tools/import_crowdworks.py B path/to/タスクB.csv      # 実会話型
   python tools/import_crowdworks.py status                      # 取り込み結果（承認判断用）を work/cw_status.csv に出す
+  --only=ID,ID    指定した作業IDだけ取り込む
   --strict-links  回答1件だけの共有（chatgpt.com/s/…）を不受理にする。募集文でそう案内した回（2回目以降）に付ける
   python tools/import_crowdworks.py resume                      # 処理が止まった提出（pending）を再開する
   オプション --dry : 送らずに、読み取った内容だけ表示
@@ -61,8 +62,9 @@ def attributes(h, r):
             "shopping_ai_freq": M["shopping_ai_freq"].get(col(h, r, "相談することはありますか")), "device": M["device"].get(col(h, r, "端末"))}
 
 def eligible(h, r):
-    if col(h, r, "18歳以上") == "いいえ" or col(h, r, "ログインして") == "いいえ":
-        return False, "条件外（18歳未満または未ログイン）"
+    # 「ログインして使っていますか」の「いいえ」では除外しない（2026-10-10 ユーザー決定）。共有リンクはログインしないと作れないので、リンクが貼れていること自体が確認になる。読み違えで「いいえ」を選ぶ人が 50人中4人いた
+    if col(h, r, "18歳以上") == "いいえ":
+        return False, "条件外（18歳未満）"
     chk = col(h, r, "確認の設問")
     if chk and chk != "3":
         return False, "確認の設問が不正解"
@@ -138,6 +140,10 @@ def main():
         print(f"work/cw_status.csv に {len(r.json())} 人分を出力")
         return
     kind, path = args[0], args[1]
+    only = set()                                   # --only=作業ID,作業ID … 指定した作業IDだけ取り込む
+    for a in sys.argv:
+        if a.startswith("--only="):
+            only = {x.strip() for x in a.split("=", 1)[1].split(",") if x.strip()}
     rows = list(csv.reader(open(path, encoding="utf-8-sig")))
     h, data = rows[0], rows[1:]
     sent = 0
@@ -145,6 +151,8 @@ def main():
         if not r or not r[0].strip():
             continue
         r = r + [""] * (len(h) - len(r))   # 行が短い場合に備えて列数をそろえる
+        if only and r[0] not in only:
+            continue
         ok, why = eligible(h, r)
         if not ok:
             print(r[0], "除外:", why); continue
