@@ -17,13 +17,15 @@ def normalize_link(url: str) -> str:
         u = u.split("?", 1)[0]
     return u.rstrip("/") if u.count("/") > 3 else u
 
-def classify_link(url: str) -> tuple[str, str | None]:
-    """(link_type, reject_reason)。share / s_t は受け付ける。"""
+S_T_REASON = "それは回答1件だけを共有したリンク（chatgpt.com/s/… で始まるURL）です。質問文やそのあとのやり取りが入りません。画面右上の「共有」（スマホは「…」の中）から会話全体のリンク（chatgpt.com/share/… で始まるURL）を作って貼ってください。"
+
+def classify_link(url: str, strict: bool = False) -> tuple[str, str | None]:
+    """(link_type, reject_reason)。share は受け付ける。s_t（回答1件だけの共有）は strict=False のときだけ受け付ける（2026-10-10 以降、LINE と次回以降のクラウドワークスでは不受理）。"""
     u = normalize_link(url)
     if SHARE.match(u):
         return "share", None
     if S_T.match(u):
-        return "s_t", None
+        return "s_t", (S_T_REASON if strict else None)
     if C_URL.match(u):
         return "c", "それは本人しか開けないチャットのURLです。画面右上の「共有」から共有リンクを作り、そのURL（chatgpt.com/share/… で始まる）を貼ってください。"
     if S_OTHER.match(u):

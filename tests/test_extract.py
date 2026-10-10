@@ -191,3 +191,12 @@ def test_inaccessible_share_is_detected():
     html = "x.streamController.enqueue(" + json.dumps(json.dumps(arr)) + ");"
     d = parse_share_html(html)
     assert d is not None and d.get("inaccessible") is True
+
+
+def test_classify_link_strict_rejects_single_answer_share():
+    from pipeline.fetch import classify_link
+    u = "https://chatgpt.com/s/t_6ac917d30fc08191aca48eaecee17dec"
+    assert classify_link(u) == ("s_t", None)
+    kind, reason = classify_link(u, strict=True)
+    assert kind == "s_t" and reason and "chatgpt.com/share/" in reason
+    assert classify_link("https://chatgpt.com/share/6ac8c95a-8620-83ee-b30c-304855025c54", strict=True) == ("share", None)

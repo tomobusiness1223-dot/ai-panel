@@ -210,7 +210,7 @@ def submit(body: SubmitIn, bg: BackgroundTasks, uid: str = Depends(line_user_id)
                        match_status="declined", accept_status="declined", reject_reason="本人が提出しないことを選択")
         db.add(s); db.commit()
         return {"id": s.id, "status": "declined"}
-    link_type, reason = classify_link(body.link_url)
+    link_type, reason = classify_link(body.link_url, strict=True)
     if reason:
         raise HTTPException(422, reason)
     genre_key, own_label, pts = None, None, None
@@ -314,6 +314,7 @@ class ImportIn(BaseModel):
     external_id: str                        # 作業ID
     attributes: dict = {}
     items: list[ImportItem] = []
+    strict_links: bool = False   # True なら回答1件だけの共有（chatgpt.com/s/…）を不受理にする（募集文でそう案内した回以降）
 
 def _process_import(sub_ids: list[int], reactions: dict):
     """取り込んだ提出を順に処理し、自由記述の「気になった商品」を読み取った推薦に結び付ける。"""
@@ -369,7 +370,7 @@ def admin_import(body: ImportIn, token: str, bg: BackgroundTasks, db: Session = 
         tp = topics.get(it.topic_key)
         if not tp:
             errors.append({"topic": it.topic_key, "error": "お題がありません"}); continue
-        link_type, reason = classify_link(it.link_url)
+        link_type, reason = classify_link(it.link_url, strict=body.strict_links)
         existing = db.scalars(select(Submission).where(Submission.panelist_id == p.id, Submission.topic_id == tp.id)).all()
         if any(e.link_url == normalize_link(it.link_url) for e in existing) or (tp.mode != "own" and any(e.accept_status in ("accepted", "reference", "pending") for e in existing)):
             skipped.append(it.topic_key); continue

@@ -3,6 +3,7 @@
   python tools/import_crowdworks.py A path/to/タスクA.csv      # お題型（前提＋3カテゴリ）
   python tools/import_crowdworks.py B path/to/タスクB.csv      # 実会話型
   python tools/import_crowdworks.py status                      # 取り込み結果（承認判断用）を work/cw_status.csv に出す
+  --strict-links  回答1件だけの共有（chatgpt.com/s/…）を不受理にする。募集文でそう案内した回（2回目以降）に付ける
   python tools/import_crowdworks.py resume                      # 処理が止まった提出（pending）を再開する
   オプション --dry : 送らずに、読み取った内容だけ表示
 
@@ -142,6 +143,8 @@ def main():
         if not ok:
             print(r[0], "除外:", why); continue
         body = body_A(h, r) if kind.upper() == "A" else body_B(h, r)
+        if "--strict-links" in sys.argv:
+            body["strict_links"] = True   # 募集文で「chatgpt.com/s/ は不可」と案内した回から付ける
         if dry:
             print(json.dumps(body, ensure_ascii=False)[:600]); continue
         resp = httpx.post(f"{BASE}/api/admin/import", params={"token": token()}, json=body, timeout=120)

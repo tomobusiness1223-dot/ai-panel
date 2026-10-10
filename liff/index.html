@@ -139,19 +139,20 @@ async function renderSubmit(tid){
   const t=TOPICS.find(x=>x.id===tid);
   const brands=await api("/api/brands?category_key="+t.category_key);
   window.scrollTo(0,0);$("#app").innerHTML=`<a class="back" href="#" id="back">← お題一覧</a><div class="card"><h2>${t.category}</h2>
-  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る。<b>文言は変えない</b></li>${t.mode==="dialog"?'<li>ChatGPT が最初のおすすめを出し、そのあと質問してきます。<b>質問に普段どおり答える</b>（何往復でもOK）</li><li>答えを踏まえた<b>2回目のおすすめが出たら</b>、画面上の「共有」からリンクを作り、下に貼る</li>':'<li>回答が出たら、画面上の「共有」からリンクを作り、下に貼る</li>'}</ol>
+  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る。<b>文言は変えない</b></li>${t.mode==="dialog"?'<li>ChatGPT が最初のおすすめを出し、そのあと質問してきます。<b>質問に普段どおり答える</b>（何往復でもOK）</li><li>答えを踏まえた<b>2回目のおすすめが出たら</b>、画面右上の「共有」（スマホは「…」の中）→「リンクを作成」→「コピー」で<b>会話全体のリンク</b>を作り、下に貼る</li>':'<li>回答が出たら、画面右上の「共有」（スマホは「…」の中）→「リンクを作成」→「コピー」で<b>会話全体のリンク</b>を作り、下に貼る</li>'}</ol>
   <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
   ${t.mode==="dialog"?'<p class="assure">共有リンクは、質問に答えて2回目のおすすめが出たあとに作ってください。先に作ると、そのあとのやり取りがリンクに入りません。</p><p class="muted" style="margin-top:6px">ChatGPT から質問が来なかった場合は、最初のおすすめのまま共有して大丈夫です。質問に答えたくないときは「おまかせします。おすすめを教えてください。」と送ってください。</p>':'<p class="muted" style="margin-top:8px">おすすめが出ずに質問だけ返ってきたら、同じチャットで「おまかせします。おすすめを5つ教えてください。」と1回だけ送ってください。</p>'}
-  <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
+  <label>共有リンク（chatgpt.com/share/… で始まるURL。回答の下のアイコンから作る chatgpt.com/s/… のリンクは受け付けられません）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
   <label>いま使っている${t.category}のブランド（なければ「なし」）</label><input type="text" id="own" list="brandlist" placeholder="例: ${brands[0]||""}"><datalist id="brandlist">${brands.map(b=>`<option value="${b}">`).join("")}</datalist>
   <label>3か月以内に、新しく買う・乗り換える予定はありますか</label><div class="radios"><label><input type="radio" name="intent" value="yes">ある</label><label><input type="radio" name="intent" value="no">ない</label><label><input type="radio" name="intent" value="unknown">分からない</label></div>
   <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
   $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(t.prompt_text);$("#copy").textContent="コピーしました";}catch(e){const r=document.createRange();r.selectNodeContents($("#ptxt"));getSelection().removeAllRanges();getSelection().addRange(r);$("#copy").textContent="選択しました。長押しでコピー";}};
-  const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
+  const SHARE=/^https:\/\/chatgpt\.com\/share\/[0-9a-f-]{20,}\/?$/;
   $("#link").oninput=()=>{const v=$("#link").value.trim();if(!v){$("#linkmsg").innerHTML="";return;}
     if(SHARE.test(v))$("#linkmsg").innerHTML=`<div class="msg ok">リンクの形式はOKです</div>`;
-    else if(/chatgpt\.com\/c\//.test(v))$("#linkmsg").innerHTML=`<div class="msg ng">それは本人しか開けないURLです。画面の「共有」ボタンからリンクを作ってください。</div>`;
+    else if(/chatgpt\.com\/c\//.test(v))$("#linkmsg").innerHTML=`<div class="msg ng">それは本人しか開けないURLです。画面右上の「共有」からリンクを作ってください。</div>`;
+    else if(/chatgpt\.com\/s\//.test(v))$("#linkmsg").innerHTML=`<div class="msg ng">それは回答1件だけを共有したリンクです。質問文やそのあとのやり取りが入りません。回答の下のアイコンではなく、画面右上の「共有」（スマホは「…」の中）から会話全体のリンクを作ってください。</div>`;
     else $("#linkmsg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください。</div>`;};
   $("#send").onclick=async()=>{
     const link=$("#link").value.trim();const intent=(document.querySelector("input[name=intent]:checked")||{}).value;
@@ -195,16 +196,16 @@ function renderReaction(s){
 function renderPremise(t){
   window.scrollTo(0,0);$("#app").innerHTML=`<a class="back" href="#" id="back">← お題一覧</a><div class="card"><h2>${t.category}</h2>
   <p class="muted">ChatGPT があなたについて何を覚えていて、買い物やサービス選びの相談でどう使っているかを調べるお題です。${t.resubmit_days}日ごとに更新でき、変化を追えます。</p>
-  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る</li><li>回答を読んで、<b>出してよいと思えたら</b>「共有」からリンクを作り、下に貼る</li></ol>
+  <ol class="steps"><li>ChatGPTで<b>新しいチャット</b>を開く（一時チャットは不可）</li><li>下の質問文をそのまま送る</li><li>回答を読んで、<b>出してよいと思えたら</b>画面右上の「共有」（スマホは「…」の中）→「リンクを作成」→「コピー」でリンクを作り、下に貼る</li></ol>
   <div class="prompt" id="ptxt">${t.prompt_text}</div><button class="btn sec" id="copy">質問文をコピー</button>
   <div class="assure">個人が特定されるような情報は一切使用せず、分析に使われることはありません。</div>
   <p class="muted" style="margin-top:8px">出したくない内容が含まれていれば、提出せずに「お題一覧」に戻ってください。</p>
-  <label>共有リンク（chatgpt.com/share/… で始まるURL）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
+  <label>共有リンク（chatgpt.com/share/… で始まるURL。回答の下のアイコンから作る chatgpt.com/s/… のリンクは受け付けられません）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
   <button class="btn" id="send">提出する</button><div id="msg"></div></div>`;
   $("#back").onclick=e=>{e.preventDefault();load();};
   $("#copy").onclick=async()=>{try{await navigator.clipboard.writeText(t.prompt_text);$("#copy").textContent="コピーしました";}catch(e){const r=document.createRange();r.selectNodeContents($("#ptxt"));getSelection().removeAllRanges();getSelection().addRange(r);$("#copy").textContent="選択しました。長押しでコピー";}};
-  const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
-  $("#send").onclick=async()=>{const link=$("#link").value.trim(); if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください</div>`;return;}
+  const SHARE=/^https:\/\/chatgpt\.com\/share\/[0-9a-f-]{20,}\/?$/;
+  $("#send").onclick=async()=>{const link=$("#link").value.trim(); if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">${/chatgpt\.com\/s\//.test(link)?"それは回答1件だけを共有したリンクです。画面右上の「共有」（スマホは「…」の中）から会話全体のリンク（chatgpt.com/share/…）を作ってください。":"chatgpt.com/share/… で始まるURLを貼ってください"}</div>`;return;}
     $("#send").disabled=true;$("#msg").innerHTML=`<div class="msg ok">回答を確認しています…</div>`;
     try{const r=await api("/api/submissions",{method:"POST",body:{topic_id:t.id,link_url:link}});poll(r.id,{noReaction:true});}catch(e){$("#send").disabled=false;$("#msg").innerHTML=`<div class="msg ng">${e.message}</div>`;}};
 }
@@ -218,9 +219,9 @@ async function renderOwn(t){
   <label id="oitem_label" hidden>詳しい種類</label><select id="oitem" hidden></select>
   <input type="text" id="ocat_other" placeholder="例：炊飯器、転職エージェント" style="margin-top:6px" hidden>
   <div class="muted" id="opts" style="margin-top:6px"></div>
-  <ol class="steps" style="margin-top:12px"><li>ChatGPT の履歴からその会話を開く</li><li>画面上の「共有」からリンクを作り、下に貼る</li></ol>
+  <ol class="steps" style="margin-top:12px"><li>ChatGPT の履歴からその会話を開く</li><li>画面右上の「共有」（スマホは「…」の中）→「リンクを作成」→「コピー」で<b>会話全体のリンク</b>を作り、下に貼る</li></ol>
   <p class="muted">他人に見られたくない内容が含まれる会話は提出しないでください。名前などはこちらで伏せ字にします。</p>
-  <label>共有リンク</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
+  <label>共有リンク（chatgpt.com/share/… で始まるURL。回答の下のアイコンから作る chatgpt.com/s/… のリンクは受け付けられません）</label><input type="url" id="link" placeholder="https://chatgpt.com/share/…" inputmode="url"><div id="linkmsg"></div>
   <label>相談した結果</label><div class="radios"><label><input type="radio" name="outcome" value="bought">買った・契約した</label><label><input type="radio" name="outcome" value="considering">検討中（まだ決めていない）</label><label><input type="radio" name="outcome" value="not_bought">買わなかった</label></div>
   <div id="sec_bought" hidden>
     <label>買った・契約したもの</label><input type="text" id="chosen" placeholder="商品名・ブランド名・サービス名">
@@ -244,12 +245,12 @@ async function renderOwn(t){
     if(!other&&g){$("#oitem").innerHTML=`<option value="">選んでください</option>`+G.groups[g].items.map(x=>`<option value="${x.key}">${x.name}</option>`).join("");} showPts();};
   $("#oitem").onchange=showPts;
   document.querySelectorAll("input[name=outcome]").forEach(el=>el.onchange=()=>{for(const k of ["bought","considering","not_bought"]) $("#sec_"+k).hidden=(k!==el.value);});
-  const SHARE=/^https:\/\/chatgpt\.com\/(share\/[0-9a-f-]{20,}|s\/t_[A-Za-z0-9_-]{6,})\/?$/;
+  const SHARE=/^https:\/\/chatgpt\.com\/share\/[0-9a-f-]{20,}\/?$/;
   $("#send").onclick=async()=>{
     const g=$("#ogroup").value; const other=g==="__other"; const genre_key=other?"other":$("#oitem").value; const own_category=other?$("#ocat_other").value.trim():"";
     const link=$("#link").value.trim(); const outcome=(document.querySelector("input[name=outcome]:checked")||{}).value;
     if(!g||(!other&&!genre_key)||(other&&!own_category)){$("#msg").innerHTML=`<div class="msg ng">何についての相談かを選んでください</div>`;return;}
-    if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">chatgpt.com/share/… で始まるURLを貼ってください</div>`;return;}
+    if(!SHARE.test(link)){$("#msg").innerHTML=`<div class="msg ng">${/chatgpt\.com\/s\//.test(link)?"それは回答1件だけを共有したリンクです。画面右上の「共有」（スマホは「…」の中）から会話全体のリンク（chatgpt.com/share/…）を作ってください。":"chatgpt.com/share/… で始まるURLを貼ってください"}</div>`;return;}
     if(!outcome){$("#msg").innerHTML=`<div class="msg ng">相談した結果を選んでください</div>`;return;}
     const v=id=>$("#"+id).value.trim(); const err=m=>{$("#msg").innerHTML=`<div class="msg ng">${m}</div>`;};
     const body={topic_id:t.id,link_url:link,genre_key,own_category,outcome};
