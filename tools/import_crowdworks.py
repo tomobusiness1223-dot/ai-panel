@@ -9,7 +9,7 @@
 
 CSV の列は、設問文に含まれる目印の語で探す（設問番号がずれても動く）。選択式の設問は「番号, 選択肢名」の2列になるので、選択肢名の列を読む。
 """
-import sys, csv, json, pathlib, datetime, httpx
+import re, sys, csv, json, pathlib, datetime, httpx
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from annotate import token, BASE, WORK
@@ -79,17 +79,19 @@ def body_A(h, r):
     items = [it for it in items if it["link_url"] and it["link_url"] not in ("なし", "提出しません")]
     return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": items}
 
+PREMISE_MARK = "新しいチャットで次の文を送り"   # お題0（前提）の設問。見出しの「【お題0】」は掲載時に変わることがあるので本文の語で探す
+
 def body_B(h, r):
     g = col(h, r, "何についての相談")
-    name = g.split("：", 1)[-1].strip()
+    name = re.sub(r"^【[^】]*】", "", g.split("：", 1)[-1]).strip()   # 「【家電・デジタル】美容家電」→「美容家電」
     key = GENRE_BY_NAME.get(name)
     KNEW = {"知っていて、候補に入れていた": "considered", "名前は知っていた": "name_only", "知らなかった": "unknown"}   # 「買っていない…」は None
-    NA = ("", "なし", "無し", "ない", "特になし")
-    clean = lambda t: None if (t or "").strip() in NA else t.strip()
+    NA_RE = re.compile(r"^(なし|無し|ない|特になし|特にない|特に無し|とくになし|-|－|―)[。．.、]?$")
+    clean = lambda t: None if (not (t or "").strip() or NA_RE.match((t or "").strip())) else t.strip()
     outcome = M["outcome"].get(col(h, r, "相談した結果"), "bought")
     chosen, appeal = clean(col(h, r, "買った・契約したもの")), clean(col(h, r, "どこに魅力"))
     others, why = clean(col(h, r, "ほかに迷った")), clean(col(h, r, "選ばなかった理由"))
-    item = {"topic_key": "own", "link_url": col(h, r, "共有リンク"), "genre_key": key or "other", "own_category": col(h, r, "その他を選んだ") or name, "outcome": outcome}
+    item = {"topic_key": "own", "link_url": col(h, r, "共有リンク"), "genre_key": key or "other", "own_category": clean(col(h, r, "その他を選んだ")) or name, "outcome": outcome}
     # フォームは分岐できないので、同じ設問の答えを「相談した結果」に応じて振り分ける
     if outcome == "bought":
         item.update({"chosen_text": chosen, "knew_before": KNEW.get(col(h, r, "相談する前から")), "appeal_text": appeal, "runner_up_text": others, "rejection_text": why})
@@ -98,12 +100,12 @@ def body_B(h, r):
     else:
         item.update({"not_buy_reason_text": why, "runner_up_text": others})
     items = []
-    prem = col(h, r, "【お題0", "共有リンク")          # タスクB でも、先に前提のお題を出してもらう
+    prem = col(h, r, PREMISE_MARK, "共有リンク")          # タスクB でも、先に前提のお題を出してもらう
     if prem and prem not in ("なし", "提出しません"):
         items.append({"topic_key": "premise", "link_url": prem})
     own_link = ""
     for i, x in enumerate(h):                          # 「共有リンク」を含む設問が2つあるので、お題0ではないほうを会話のリンクとする
-        if x and "共有リンク" in x and "【お題0" not in x:
+        if x and "共有リンク" in x and PREMISE_MARK not in x and "【お題" not in x:
             own_link = (r[i] or "").strip()
     item["link_url"] = own_link
     if own_link:

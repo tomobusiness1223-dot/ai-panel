@@ -22,6 +22,10 @@ def resume_pending(max_age_minutes: int = 2) -> int:
 def run(all_=False):
     init_db()
     db = SessionLocal()
+    # 2026-10-10：答える前の共有（early）も受付扱いにした。参考のまま残っている分を直す（取り直し不要）
+    for s in db.scalars(select(Submission).where(Submission.match_status == "early", Submission.accept_status == "reference")):
+        s.accept_status = "accepted"
+    db.commit()
     ids = []
     for s in db.scalars(select(Submission).where(Submission.accept_status.in_(["accepted", "reference"]))):
         has = db.scalar(select(ConversationTurn.id).where(ConversationTurn.submission_id == s.id).limit(1))

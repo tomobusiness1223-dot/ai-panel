@@ -54,7 +54,7 @@ def _recheck_from_stored(db: Session, sub_id: int) -> None:
             pi = next((t.idx for t in turns if t.kind == "prompt"), -1)
             st = stage_info(msgs, compiled, pi)
             if st["early"]:
-                sub.match_status, sub.accept_status = "early", "reference"
+                sub.match_status, sub.accept_status = "early", "accepted"
                 r = db.scalar(select(Response).where(Response.submission_id == sub.id))
                 if r:
                     r.answer_note = (r.answer_note or "") + "／質問に答える前に共有（最初の推薦のみ）"
@@ -130,12 +130,7 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             print(f"[process] sub={sub.id} dialog answer_index={idx} note={note}", flush=True)
         st = stage_info(res.messages, compiled, mr.prompt_index) if (topic.mode == "dialog" and compiled) else None
         if st and st["early"]:
-            # AI が質問しているのに、答える前に共有された。LINE ではその場で出し直してもらう。取り込み（クラウドワークス）は出し直せないので参考扱い
-            pan = db.get(Panelist, sub.panelist_id)
-            if not reprocess and (pan is None or (pan.source or "line") == "line"):
-                sub.match_status, sub.accept_status = "early", "rejected"
-                sub.reject_reason = "ChatGPT からの質問に答える前に共有されています。同じチャットで質問に答え、答えを踏まえたおすすめが出てから、もう一度「共有」でリンクを作り直して貼ってください。（質問に答えたくない場合は「おまかせします。おすすめを教えてください。」と送ってください）"
-                db.commit(); return
+            # AI が質問しているのに、答える前に共有された。商品が出ていればデータとして使う（2026-10-10 ユーザー決定。LINE も差し戻さず受け付ける）。match_status=early で区別できる
             mr.status, mr.note = "early", (mr.note or "") + "／質問に答える前に共有（最初の推薦のみ）"
             sub.match_status = "early"
         names = llm.find_person_names(mr.answer)
@@ -179,7 +174,7 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             db.add(ConversationTurn(submission_id=sub.id, idx=i, role=m.role, kind=kind, redacted_text=redact(m.text, names), n_sources=len(m.sources)))
             for sc in m.sources:
                 db.add(Source(submission_id=sub.id, turn_idx=i, is_answer_turn=(i == mr.answer_index), domain=sc["domain"][:120], url=sc["url"], title=sc.get("title")))
-        ok_status = ("ok", "typo", "dialog", "own") + (("fallback",) if topic.mode == "dialog" else ())   # 2段階の質問文では「おまかせします」も正規の進め方
+        ok_status = ("ok", "typo", "dialog", "own", "early") + (("fallback",) if topic.mode == "dialog" else ())   # 2段階の質問文では「おまかせします」も正規の進め方。early も商品が出ていれば受付
         sub.accept_status = "accepted" if mr.status in ok_status else "reference"
         if not reprocess:
             db.add(PointLedger(panelist_id=sub.panelist_id, delta=sub.point_value or topic.point_value, reason="submission", ref_table="submission", ref_id=sub.id))
