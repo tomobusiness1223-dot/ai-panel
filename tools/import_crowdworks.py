@@ -11,8 +11,9 @@ CSV の列は、設問文に含まれる目印の語で探す（設問番号が�
 """
 import re, sys, csv, json, pathlib, datetime, httpx
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools")); sys.path.insert(0, str(ROOT))
 from annotate import token, BASE, WORK
+from pipeline.fetch import normalize_link
 GENRES = json.load(open(ROOT / "pipeline/genres.json", encoding="utf-8"))
 GENRE_BY_NAME = {it["name"]: it["key"] for g in GENRES["groups"] for it in g["items"]}
 
@@ -108,6 +109,9 @@ def body_B(h, r):
         if x and "共有リンク" in x and PREMISE_MARK not in x and "【お題" not in x:
             own_link = (r[i] or "").strip()
     item["link_url"] = own_link
+    if own_link and prem and normalize_link(own_link) == normalize_link(prem):
+        print(r[0], "注意: お題0と会話のリンクが同じなので、会話のほうは取り込まない")   # 同じ会話を2回数えない。前提のお題としてだけ扱う
+        own_link = ""
     if own_link:
         items.append(item)
     return {"source": "crowdworks", "external_id": r[0], "attributes": attributes(h, r), "items": items}
