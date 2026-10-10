@@ -125,6 +125,7 @@ def source_type(domain):
             return v
     return ["その他のサイト", d]
 
+PAST = re.compile(r"(以前|前回|先日|これまで|最近|過去に)[^。\n?？]{0,40}(伺|お話|話し|聞い|教えてもらっ|教えていただ|相談され|相談した|探して|気になって|使って|言って|おっしゃ|ようだ|ようです|でしたね|ましたね|ありました)")
 AGE_ORDER = ["10代", "20代", "30代", "40代", "50代", "60代", "70代"]
 def build(cat):
     comp = L.compiled_for(cat)
@@ -152,9 +153,15 @@ def build(cat):
         first, final = enrich(cat, c["first"]), enrich(cat, c["final"])
         ai_first_text = c["first_text"] or ""
         mem_s = memory_sentences(ai_first_text)
-        m = STRONG.search(ai_first_text.replace(MEMORY_MARK, ""))
-        # 引用するのは「以前〜と伺いました」のように過去の会話に触れた文だけ。メモリ参照の印だけが付いた回答は、どの文か特定できないので引用しない
-        mem_ev = ai_first_text[max(0, m.start() - 30):m.end() + 50].replace("\n", " ") if m else ""
+        # 引用するのは「以前〜と伺いました」「最近〜気になっていたようだから」のように、過去の会話に触れた文だけ（文の頭から句点まで）。印だけの回答は引用しない
+        txt = ai_first_text.replace(MEMORY_MARK, "")
+        m = PAST.search(txt)
+        if m:
+            s0 = max(txt.rfind("\n", 0, m.start()), txt.rfind("。", 0, m.start())) + 1
+            e0 = txt.find("。", m.end()); e0 = len(txt) if e0 < 0 else e0 + 1
+            mem_ev = txt[s0:e0].replace("\n", " ")
+        else:
+            mem_ev = ""
         ob = own.get(pid)
         p = {"pid": pid, "who": f"{a.get('age_decade') or '年代不明'}{ {'F': '女性', 'M': '男性'}.get(a.get('gender'), '') }",
              "g": a.get("gender", ""), "age": a.get("age_decade", ""), "memory": a.get("memory", ""), "freq": a.get("usage_freq", ""), "shop": a.get("shopping_ai_freq", ""),
