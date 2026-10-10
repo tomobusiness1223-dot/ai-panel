@@ -36,6 +36,26 @@ def process_submission(sub_id: int, reprocess: bool = False) -> None:
     with _PROCESS_LOCK:
         _process_submission(sub_id, reprocess)
 
+def _load_raw(sub_id: int) -> dict | None:
+    """受付時に保存した会話（原文）を読む。共有リンクがあとで消されても、ここから読み取りをやり直せる。"""
+    for path in (f"{RAW_DIR}/{sub_id}.json.enc", f"{RAW_DIR}/{sub_id}.json"):
+        if not os.path.exists(path):
+            continue
+        data = open(path, "rb").read()
+        try:
+            if path.endswith(".enc"):
+                key = os.environ.get("RAW_KEY")
+                if not key:
+                    return None
+                from cryptography.fernet import Fernet
+                data = Fernet(key).decrypt(data)
+            d = json.loads(data)
+            d["_path"] = path
+            return d
+        except Exception as e:
+            print(f"[process] sub={sub_id} stored raw unreadable: {type(e).__name__}", flush=True)
+    return None
+
 def _recheck_from_stored(db: Session, sub_id: int) -> None:
     """共有ページを取り直せない提出について、保存済みの発言（伏字済み）から、現使用ブランドの辞書当てと「答える前に共有」の判定をやり直す。"""
     from pipeline.fetch import Message
@@ -82,11 +102,22 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             res = fetch_sync(sub.link_url)             # ブラウザでの取得は開発時のみ（本番の小さなサーバーではメモリ不足で落ちる）
         if res.status == "error" and "no embedded data" in (res.error or ""):
             res.status = "invalid"                     # 会話データの無いページ＝開けない共有リンクとして扱う
+        stored_path = None
         if reprocess and res.status != "ok":
-            print(f"[process] sub={sub.id} reprocess skipped: fetch={res.status} {res.error}", flush=True)
-            db.rollback()
-            _recheck_from_stored(db, sub_id)   # 取り直せなくても、保存済みの会話から辞書の当て直しと「答える前に共有」の判定だけはやり直す
-            return
+            raw = _load_raw(sub.id)             # 共有リンクが消えていても、受付時に保存した会話から読み取りをやり直す
+            if raw and raw.get("messages"):
+                from pipeline.fetch import Message, FetchResult
+                from pipeline.share_html import strip_chips
+                msgs = [Message(m["role"], strip_chips(m["text"]) if m["role"] == "assistant" else m["text"], bool(m.get("has_citation")), m.get("widget_text") or "", m.get("sources") or [])
+                        for m in raw["messages"] if m.get("text")]
+                print(f"[process] sub={sub.id} reprocess from stored conversation (fetch={res.status} {res.error})", flush=True)
+                res = FetchResult("ok", msgs, raw.get("final_url") or sub.link_url, raw.get("title") or "")
+                stored_path = raw["_path"]
+            else:
+                print(f"[process] sub={sub.id} reprocess skipped: fetch={res.status} {res.error}", flush=True)
+                db.rollback()
+                _recheck_from_stored(db, sub_id)   # 保存した会話も無いときは、伏字済みの発言から辞書の当て直しと「答える前に共有」の判定だけやり直す
+                return
         sub.fetch_status = res.status
         print(f"[process] sub={sub.id} fetch={res.status} final={res.final_url} title={res.title!r} msgs={len(res.messages)} err={res.error}", flush=True)
         if res.status != "ok":
@@ -112,8 +143,8 @@ def _process_submission(sub_id: int, reprocess: bool = False) -> None:
             sub.accept_status, sub.reject_reason = "rejected", REJECT_TEXT[mr.status]
             db.commit(); return
         # 保存（原文は暗号化領域、分析には伏字版）
-        raw_ref = _save_raw(sub.id, {"url": sub.link_url, "final_url": res.final_url, "title": res.title,
-                                     "messages": [m.__dict__ for m in res.messages]})
+        raw_ref = stored_path or _save_raw(sub.id, {"url": sub.link_url, "final_url": res.final_url, "title": res.title,
+                                                     "messages": [m.__dict__ for m in res.messages]})
         cat_id = topic.category_id
         if topic.mode == "own":
             # 本人が選んだカテゴリの辞書を使う（お題のカテゴリ名と一致すれば）

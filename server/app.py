@@ -520,12 +520,14 @@ def admin_export(name: str, token: str, scope: str = "main", db: Session = Depen
         a = dt.date.today().year - y
         return "18-34" if a < 35 else "35-49" if a < 50 else "50+"
     if name == "participants":
-        w.writerow(["person_id", "gender", "age_band", "plan", "memory", "device"])
+        w.writerow(["person_id", "gender", "age_band", "plan", "memory", "device", "age_decade", "region", "household", "usage_freq", "started_at", "shopping_ai_freq", "source"])
         seen = set()
         for (pid, _), (s, t, c) in latest.items():
             if pid in seen: continue
-            seen.add(pid); a = attr_at(pid, s.submitted_at)
-            w.writerow([pid, {"female": "F", "male": "M"}.get(a.gender, "X") if a else "", age_band(a.birth_year) if a else "", a.ai_plan or "" if a else "", a.memory_setting or "" if a else "", a.device or "" if a else ""])
+            seen.add(pid); a = attr_at(pid, s.submitted_at); pan = db.get(Panelist, pid)
+            dec = f"{(dt.date.today().year - a.birth_year) // 10 * 10}代" if a and a.birth_year else ""
+            w.writerow([pid, {"female": "F", "male": "M"}.get(a.gender, "X") if a else "", age_band(a.birth_year) if a else "", a.ai_plan or "" if a else "", a.memory_setting or "" if a else "", a.device or "" if a else "",
+                        dec, (a.prefecture or "") if a else "", (a.household or "") if a else "", (a.usage_freq or "") if a else "", (a.started_at or "") if a else "", (a.shopping_ai_freq or "") if a else "", (pan.source or "line") if pan else ""])
     elif name == "responses":
         w.writerow(["person_id", "category", "model", "used_search", "device", "match_status", "extract_status", "personalization", "submission_id", "extract_version"])
         for (pid, ck), (s, t, c) in latest.items():

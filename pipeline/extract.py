@@ -77,11 +77,14 @@ def match_prompt(prompt: str, messages: list[Message], mode: str = "single") -> 
     return MatchResult("fail", "", -1, "指定の質問文が見つからない")
 
 # ---- ブランド抽出 ----
-NUM_LINE = re.compile(r"^\s*(?:[#*\-\s|]*)(?:(\d{1,2})[.．)）、:：]|[①②③④⑤⑥⑦⑧⑨⑩]|(?:第)?(\d{1,2})\s*位)", re.M)
+NUM_LINE = re.compile(r"^\s*(?:[#*\-\s|]*)(?:(\d{1,2})[.．)）、:：](?!\d)|[①②③④⑤⑥⑦⑧⑨⑩]|(?:第)?(\d{1,2})\s*位|第\s*([一二三四五六七八九1-9])\s*候補)", re.M)
+KANJI_NUM = "一二三四五六七八九"
 CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩"
 INLINE_RANK = re.compile(r"(\d{1,2})\s*位\s*[はがに：:｜|・\-–—]?\s*[*＊「『【\s]*$")
 NEG_BEFORE = re.compile(r"(おすすめしない|おすすめできない|勧めない|勧められない|避け|向かない|除外|選ばない|やめ)")
 NEG_AFTER = re.compile(r"(は(おすすめ|お勧め|勧め)(しない|できない|しません|できません|られない|られません|ません|ない)|は避け|は向か|は除外|は選ば|ではなく|以外)")
+
+POS_AFTER = re.compile(r"[^。\n]{0,8}(もおすすめ|もお勧め|も良い|もよい|もいい|も候補|も選択肢|もあり|も合い|も向い|がおすすめ|がお勧め|をおすすめ|をお勧め)")
 
 @dataclasses.dataclass
 class Found:
@@ -109,15 +112,8 @@ def compile_brands(brands: list[tuple]) -> list[tuple]:
 def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
     """(番号, 開始位置, 終了位置)。番号付き項目の範囲。"""
     marks = []
-    for m in NUM_LINE.finditer(text):
-        g = m.group(1) or m.group(2)
-        if g:
-            n = int(g)
-        else:
-            ch = m.group(0).strip()[0]
-            n = CIRCLED.index(ch) + 1 if ch in CIRCLED else 0
-        if 1 <= n <= 15:
-            marks.append((n, m.start()))
+    for n, s, _style in _marks(text):
+        marks.append((n, s))
     blocks = []
     for k, (n, s) in enumerate(marks):
         e = marks[k + 1][1] if k + 1 < len(marks) else len(text)
@@ -129,7 +125,84 @@ def _numbered_blocks(text: str) -> list[tuple[int, int, int]]:
             seq.append((n, s, e)); expect += 1
     return seq
 
-EXTRACT_VERSION = "v10"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
+def _marks(text: str) -> list[tuple[int, int, str]]:
+    """番号の行 (番号, 位置, 書き方)。書き方は dot（1.）／pos（1位）／circ（①）。"""
+    out = []
+    for m in NUM_LINE.finditer(text):
+        if m.group(1):
+            n, style = int(m.group(1)), "dot"
+        elif m.group(2):
+            n, style = int(m.group(2)), "pos"
+        elif m.group(3):
+            g = m.group(3)
+            n, style = (KANJI_NUM.index(g) + 1 if g in KANJI_NUM else int(g)), "cand"
+        else:
+            ch = m.group(0).strip()[-1]
+            n, style = (CIRCLED.index(ch) + 1 if ch in CIRCLED else 0), "circ"
+        if 1 <= n <= 15:
+            out.append((n, m.start(), style))
+    return out
+
+def _runs(text: str) -> list[list[tuple[int, int, int]]]:
+    """1 から始まる連番のまとまり。書き方ごとに数える（「1位 2位 3位」のあとに質問の「1. 2. 3. 4.」が続いても、4. を4位と取り違えない）。
+    項目の範囲は、次の番号の行（書き方を問わない）の手前まで。"""
+    marks = _marks(text)
+    open_, runs = {}, []
+    for k, (n, s, style) in enumerate(marks):
+        e_ = marks[k + 1][1] if k + 1 < len(marks) else len(text)
+        cur = open_.get(style)
+        if cur and n == cur[-1][0] + 1:
+            cur.append((n, s, e_))
+        elif n == 1:
+            if cur:
+                runs.append(cur)
+            open_[style] = [(n, s, e_)]
+    runs += [r for r in open_.values() if r]
+    return sorted(runs, key=lambda r: r[0][1])
+
+def _run_style(text: str, run) -> str:
+    return next((st for n, s, st in _marks(text) if s == run[0][1]), "")
+
+def _heading_span(text: str, s: int, e_: int) -> tuple[int, int]:
+    """項目の見出し＝番号の行。その行が順位や短いラベルだけのときは、続く短い行（商品名・ブランド・価格の行）を2行まで含める。
+    文（「。」で終わる）・箇条書き・長い行は本文なので含めない。"""
+    WS = " \t\r\n\u3000"
+    while s < e_ and text[s] in WS:
+        s += 1
+    le = text.find("\n", s, e_)
+    le = e_ if le < 0 else le
+    if len(_tidy(text[s:le])) > 16:
+        return s, le
+    end, p = le, le
+    for _ in range(2):
+        while p < e_ and text[p] in WS:
+            p += 1
+        if p >= e_:
+            break
+        le2 = text.find("\n", p, e_)
+        le2 = e_ if le2 < 0 else le2
+        line = text[p:le2]
+        if len(line) > 60 or line.rstrip().endswith("。") or re.match(r"\s*[-・*]\s", line):
+            break
+        end = p = le2
+    return s, end
+
+def _ranked_run(text: str, occ, is_negative) -> list[tuple[int, int, int]]:
+    """推薦の順位として読む並び＝見出しにブランドが出ている項目がいちばん多い並び（同数なら先に出たほう）。"""
+    best, best_score = [], 0
+    for run in _runs(text):
+        score = 0
+        for n, s, e_ in run:
+            hs, he = _heading_span(text, s, e_)
+            if any(hs <= o[0] < he and not is_negative(o) for o in occ):
+                score += 1
+        if score > best_score:
+            best, best_score = run, score
+    if not best:   # 辞書にあるブランドが見出しに1つも無い。それでも「1位 2位 …」の並びがあれば順位の一覧として扱う（辞書外の商品だけの回答。本文で触れただけのブランドを推薦に数えないため）
+        best = next((r for r in _runs(text) if len(r) >= 2 and _run_style(text, r) in ("pos", "cand")), [])
+    return best
+
+EXTRACT_VERSION = "v11"   # 抽出ルールを変えたら上げる。古い版で作った提出は backfill が作り直す
 BOLD = re.compile(r"\*\*(.+?)\*\*")
 RANK_ONLY = re.compile(r"^\s*(?:第)?\d{1,2}\s*位?\s*$|^[①-⑩]$")
 
@@ -147,7 +220,7 @@ def _product_text(text: str, start: int, end: int, block: tuple[int, int] | None
     if block and "|" not in line:
         for m in BOLD.finditer(text[block[0]:block[1]]):
             seg = m.group(1)
-            if not RANK_ONLY.match(seg) and len(seg) <= 80 and block[0] + m.start() <= start + 200:
+            if not RANK_ONLY.match(seg) and len(seg) <= 80 and block[0] + m.start() <= start + 200 and not seg.rstrip().endswith("。"):
                 return _tidy(seg)
     if "|" in line:
         pos = 0
@@ -159,18 +232,12 @@ def _product_text(text: str, start: int, end: int, block: tuple[int, int] | None
 
 def _tidy(s: str) -> str:
     s = re.sub(r"[*#`]", "", s)
-    s = re.sub(r"^\s*(?:[-・\s|]*)(?:\d{1,2}[.．)）、:：]|[①-⑩]|(?:第)?\d{1,2}\s*位)[\s｜|:：・·\-–—は]*", "", s)
+    s = re.sub(r"^\s*(?:[-・\s|]*)(?:\d{1,2}[.．)）、:：]|[①-⑩]|(?:第)?\d{1,2}\s*位|第\s*[一二三四五六七八九1-9]\s*候補)[\s｜|:：・·\-–—は]*", "", s)
     return re.sub(r"\s+", " ", s).strip()[:80]
 
 def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     """本文からブランドを拾い、順位と言及の種類を付ける。
     順位は「番号つき項目（1. / ① / 1位）」ごとに、その項目で最初に出たブランドに付ける。"""
-    blocks = _numbered_blocks(text)
-    def block_of(p):
-        for n, s, e_ in blocks:
-            if s <= p < e_:
-                return n
-        return None
     makers = {name: maker for _, name, _, maker in compiled}
     ids = {name: bid for bid, name, _, _ in compiled}
     # 1) 全ブランドの全出現
@@ -184,19 +251,36 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     def is_negative(o):
         s0 = max(text.rfind("。", 0, o[0]), text.rfind("\n", 0, o[0])) + 1
         return bool(NEG_BEFORE.search(text[s0:o[0]]) or NEG_AFTER.match(text[o[1]:o[1] + 12]))
-    # 3) 項目ごとの先頭ブランド
+    blocks = _ranked_run(text, occ, is_negative)
+    heading = {n: _heading_span(text, s, e_) for n, s, e_ in blocks}
+    def block_of(p):
+        for n, s, e_ in blocks:
+            if s <= p < e_:
+                return n
+        return None
+    def in_heading(o):
+        n = block_of(o[0])
+        return n if n is not None and heading[n][0] <= o[0] < heading[n][1] else None
+    # 3) 項目の見出し（番号の行）に出たブランド＝その順位の商品。本文で比較として触れただけのブランドは順位に入れない
     head: dict[int, tuple] = {}
     for o in occ:
         if is_negative(o):
             continue
-        n = block_of(o[0])
+        n = in_heading(o)
         if n is not None and n not in head:
             head[n] = o
-    # 先頭がメーカー名で、同じ項目にそのメーカーのブランドが続くなら、ブランドを先頭にする（「花王 キュレル」）
+    # 見出しの先頭がメーカー名で、同じ見出しにそのメーカーのブランドが続くなら、ブランドを先頭にする（「花王 キュレル」）
+    maker_names = {m for m in makers.values() if m}
     for n, h in list(head.items()):
+        swapped = False
         for o in occ:
-            if block_of(o[0]) == n and makers.get(o[2]) == h[2] and not is_negative(o):
-                head[n] = o; break
+            if in_heading(o) == n and makers.get(o[2]) == h[2] and not is_negative(o):
+                head[n] = o; swapped = True; break
+        # 見出しがメーカー名だけのときは、その項目の本文に出た同じメーカーのブランドが1つなら、それにする（「ロート製薬 薬用浸透美白化粧水」＝白潤）
+        if not swapped and h[2] in maker_names:
+            own = {o[2] for o in occ if block_of(o[0]) == n and makers.get(o[2]) == h[2] and not is_negative(o)}
+            if len(own) == 1:
+                head[n] = (h[0], h[1], own.pop())
     # 文中の「4位は**ミノン**、5位は**イハダ**」
     for o in occ:
         mi = INLINE_RANK.search(text[max(0, o[0] - 14):o[0]])
@@ -211,7 +295,7 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     for n, o in sorted(head.items()):
         name = o[2]
         found.append(Found(ids[name], name, o[0], n, True, "recommended",
-                           product=_product_text(text, o[0], o[1], block_span.get(n)), primary=name not in ranked_names))
+                           product=_product_text(text, o[0], o[1], heading.get(n) or block_span.get(n)), primary=name not in ranked_names))
         ranked_names.add(name); seen.add(name)
     for o in occ:
         name = o[2]
@@ -226,6 +310,8 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
                 mtype = "compared"
             elif any(makers.get(r) == name for r in ranked_names) and not blocks:
                 mtype = "compared"
+            elif head and not POS_AFTER.match(text[o[1]:o[1] + 16]):
+                mtype = "compared"   # 順位つきの一覧がある回答では、見出しに出ていないブランドは「比較や説明で触れただけ」（現在の使用品・値段の比較など）。「〜も良い選択です」のように薦める言い方が続くときだけ推薦に数える
         found.append(Found(ids[name], name, o[0], None, False, mtype, product=_product_text(text, o[0], o[1], None)))
     if mention_classifier:
         found = mention_classifier(text, found)
@@ -238,6 +324,23 @@ def extract_brands(text: str, compiled, mention_classifier=None) -> list[Found]:
     for f in sorted([f for f in rec if not f.is_numbered], key=lambda f: f.pos):
         f.rank = next_rank; next_rank += 1
     return found
+
+def ranked_items(text: str, compiled) -> list[dict]:
+    """順位つきの項目の一覧 [{rank, brand, product, heading, start, end}]。辞書に無い商品は brand=None で残す（辞書更新の材料）。"""
+    found = {f.rank: f for f in extract_brands(text, compiled) if f.mention_type == "recommended" and f.is_numbered and f.rank}
+    occ = []
+    for bid, name, pat, maker in compiled:
+        occ += [(m.start(), m.end(), name) for m in pat.finditer(text)]
+    def is_negative(o):
+        s0 = max(text.rfind("。", 0, o[0]), text.rfind("\n", 0, o[0])) + 1
+        return bool(NEG_BEFORE.search(text[s0:o[0]]) or NEG_AFTER.match(text[o[1]:o[1] + 12]))
+    out = []
+    for n, s, e_ in _ranked_run(text, occ, is_negative):
+        hs, he = _heading_span(text, s, e_)
+        f = found.get(n)
+        out.append({"rank": n, "brand": f.name if f else None, "product": (f.product if f else "") or _tidy(text[hs:he].split("\n")[0]) or _tidy(text[hs:he]),
+                    "heading": text[hs:he], "start": s, "end": e_})
+    return out
 
 def pick_dialog_answer(messages: list[Message], compiled) -> tuple[str, int, str]:
     """ヒアリングありの会話で、分析に使う回答＝会話の結論を選ぶ。
@@ -297,7 +400,21 @@ def stage_info(messages: list[Message], compiled, prompt_index: int = -1) -> dic
 STRONG = re.compile(r"(以前|前回|先日|前に|これまで)(の|に)?(ご)?(お話|話し|伺|おっしゃ|聞い|教えて|相談|購入|お使い|会話|やり取り)|(と|を)伺っています|ご利用中の|現在(お使い|ご利用|保有)|お使いの|お持ちの|ご登録|プロフィール|[一-鿿]{1,4}(さん|様)(の|、|は)|妊娠|お子さ|お子様|ご家族|ご主人|奥様|iPhone\s?\d{1,2}|Pixel\s?\d|Galaxy\s?S\d")
 WEAK = re.compile(r"(あなたの|ご希望|お好み|向け|好きな|ライフスタイル|年代|世代|男性|女性)")
 
+MEMORY_MARK = "〔メモリ参照〕"   # share_html が <MemoryCite/>（ChatGPT がメモリを使った箇所に付ける印）を置き換えたもの
+def memory_sentences(text: str) -> list[str]:
+    """メモリを使ったと ChatGPT 自身が印を付けた文。"""
+    out = []
+    for m in re.finditer(re.escape(MEMORY_MARK), text):
+        s0 = max(text.rfind("\n", 0, m.start()), text.rfind("。", 0, max(0, m.start() - 1))) + 1
+        sent = text[s0:m.start()].strip(" 　*")
+        if sent and sent not in out:
+            out.append(sent)
+    return out
+
 def personalization_level(text: str) -> tuple[str, str]:
+    ms = memory_sentences(text)
+    if ms:
+        return "strong", ms[0][:120]
     m = STRONG.search(text)
     if m:
         s = max(0, m.start() - 30); return "strong", text[s:m.end() + 30].replace("\n", " ")

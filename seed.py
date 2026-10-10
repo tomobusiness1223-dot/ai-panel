@@ -4,7 +4,7 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
 from sqlalchemy import select, func
-from server.db import SessionLocal, init_db, Category, Brand, Topic, now
+from server.db import SessionLocal, init_db, Category, Brand, Topic, Mention, OwnBrand, now
 
 PROMPT_V1 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。"
 PROMPT_V2 = "おすすめの{cat}を5つ、{unit}と理由つきで教えてください。私に合った提案にするために、必要なら先に質問して、回答の質を上げてください。"
@@ -26,25 +26,25 @@ CATEGORIES = [
 # ブランド辞書：正規名 → 別名の正規表現（改行区切り、大小文字無視）。canonical 自体は自動で含める。
 BRANDS = {
  "toner": {
-  "ハトムギ化粧水": "ハトムギ|naturie|ナチュリエ", "ノブ": "NOV", "オードムーゲ": "", "アクネバリア": "ペアアクネ|ペア ", "ファンケル アクネケア": "", "エトヴォス": "", "オルビス クリアフル": "クリアフル", "プロアクティブ": "Proactiv", "シカペア": "Dr\\.?Jart|ドクタージャルト", "クレ・ド・ポー ボーテ": "クレドポー", "アスタリフト": "ASTALIFT", "カネボウ": "KANEBO", "ルルルン": "LuLuLun", "明色": "明色美顔水|美顔水", "ビフェスタ": "Bifesta", "サナ": "SANA", "ONE BY KOSE": "ワンバイコーセー", "コーセー": "KOSE|KOSÉ", "花王": "Kao", "肌ラボ": "肌ラボ|極潤|hadalabo|白潤", "キュレル": "curel", "ギャッツビー": "GATSBY", "アベンヌ": "Avene|Avène|アベンヌウォーター", "セザンヌ": "CEZANNE", "メナード": "MENARD", "エクセルーラ": "EXCELLULA", "松山油脂": "肌をうるおす", "ちふれ": "CHIFURE", "ウーノ": "uno", "ニベアメン": "NIVEA MEN", "バルクオム": "BULK HOMME", "オルビス ミスター": "ORBIS Mr", "無印良品": "無印", "イプサ": "IPSA",
-  "オルビス": "ORBIS", "アルビオン": "ALBION|スキンコンディショナー", "SK-II": "SK2|SKII|エスケーツー", "ファンケル": "FANCL", "エリクシール": "ELIXIR",
+  "ナチュリエ ハトムギ化粧水": "ハトムギ化粧水|ハトムギ|naturie|ナチュリエ", "ノブ": "NOV", "オードムーゲ": "", "アクネバリア": "ペアアクネ|メンズアクネバリア", "アクセーヌ": "ACSEINE", "スキンライフ": "", "メンズビオレ": "", "乾燥さん": "", "アクネス": "メンソレータム アクネス|Acnes", "ネイチャーコンク": "", "ケシミン": "", "LIPPS": "リップス", "CeraVe": "セラヴィ", "BYOMA": "バイオマ", "matsukiyo": "マツキヨ|matsukiyo LAB|マツキヨココカラ", "ファンケル アクネケア": "", "エトヴォス": "", "オルビス クリアフル": "クリアフル", "プロアクティブ": "Proactiv", "シカペア": "Dr\\.?Jart|ドクタージャルト", "クレ・ド・ポー ボーテ": "クレドポー", "アスタリフト": "ASTALIFT", "カネボウ": "KANEBO", "ルルルン": "LuLuLun", "明色": "明色美顔水|美顔水", "ビフェスタ": "Bifesta", "ONE BY KOSE": "ワンバイコーセー", "コーセー": "KOSE|KOSÉ", "花王": "Kao", "肌ラボ": "肌ラボ|極潤|hadalabo|白潤|薬用浸透美白化粧水", "キュレル": "curel", "ギャッツビー": "GATSBY", "アベンヌ": "Avene|Avène|アベンヌウォーター", "セザンヌ": "CEZANNE", "メナード": "MENARD", "エクセルーラ": "EXCELLULA", "松山油脂": "肌をうるおす", "ちふれ": "CHIFURE", "ウーノ": "uno", "ニベアメン": "NIVEA MEN", "バルクオム": "BULK HOMME", "オルビス ミスター": "ORBIS Mr", "無印良品": "無印", "イプサ": "IPSA",
+  "オルビス": "ORBIS", "アルビオン": "ALBION|スキコン|薬用スキンコンディショナー ?エッセンシャル", "SK-II": "SK2|SKII|エスケーツー", "ファンケル": "FANCL", "エリクシール": "ELIXIR",
   "イハダ": "IHADA", "ミノン": "MINON", "菊正宗": "日本酒の化粧水", "メラノCC": "メラノ", "雪肌精": "SEKKISEI",
   "アクアレーベル": "AQUALABEL", "ドクターシーラボ": "Dr\\.?Ci:?Labo|シーラボ", "コスメデコルテ": "DECORTE|デコルテ", "アヌア": "Anua", "トリデン": "Torriden",
   "ラ ロッシュ ポゼ": "ラロッシュポゼ|La Roche-?Posay", "セタフィル": "Cetaphil", "ビオデルマ": "Bioderma", "ネイチャーリパブリック": "Nature Republic",
-  "ロート製薬": "ロート", "資生堂": "SHISEIDO", "ソフィーナ": "SOFINA", "d プログラム": "dプログラム|d-program", "肌美精": "", "なめらか本舗": "豆乳イソフラボン",
-  "トランシーノ": "TRANSINO", "イニスフリー": "innisfree", "VT": "VT ?Cosmetics|シカ", "CNP": "", "魔女工場": "Manyo", "ラネージュ": "LANEIGE", "ETVOS": "エトヴォス",
+  "ロート製薬": "ロート", "資生堂": "SHISEIDO", "ソフィーナ": "SOFINA", "d プログラム": "dプログラム|d-program", "肌美精": "", "なめらか本舗": "豆乳イソフラボン|サナ|SANA",
+  "トランシーノ": "TRANSINO", "イニスフリー": "innisfree", "VT": "VT ?Cosmetics|VT ?CICA|VT ?シカ|リードルショット", "CNP": "", "魔女工場": "Manyo", "ラネージュ": "LANEIGE", "ETVOS": "エトヴォス",
   "ハーバー": "HABA", "オバジ": "Obagi", "キールズ": "Kiehl'?s", "クリニーク": "CLINIQUE", "ランコム": "LANCOME|LANCÔME", "エスト": "est", "ポーラ": "POLA",
  },
  "credit_card": {
-  "楽天カード": "楽天", "三井住友カード": "三井住友|SMBC|NL", "JCBカード W": "JCB ?CARD ?W", "JCBザ・クラス": "ザ・クラス|THE CLASS", "JCBゴールド": "JCBゴールド ザ・プレミア", "JCBプラチナ": "", "JALカード": "JAL・JCBカード|JALプラチナ|JAL CLUB-A|JALカード|JALカードnavi|JAL ?navi", "ANAカード": "ANA ?VISA|ANA ?JCB|ANAアメックス|ANAカード", "楽天プレミアムカード": "楽天プレミアム", "三井住友カード プラチナプリファード": "プラチナプリファード", "三井住友カード ゴールド": "ゴールド（NL）|ゴールドNL", "ラグジュアリーカード": "Luxury Card", "エポスゴールドカード": "エポスゴールド", "セゾンプラチナ・ビジネス・アメックス": "セゾンプラチナ", "dカード GOLD": "dカード ?GOLD|dカードゴールド", "ヒルトン・オナーズ アメックス": "ヒルトン", "PayPayカード": "PayPay", "イオンカード": "イオン|イオンカードセレクト", "ウエルシアカード": "", "東急カード": "TOKYU CARD", "ビックカメラSuicaカード": "ビックカメラ", "UCSカード": "UCS", "エポスカード": "エポス|EPOS",
+  "楽天カード": "楽天", "三井住友カード": "三井住友|SMBC|NL", "JCBカード W": "JCB ?(?:CARD|カード) ?W", "JCBカード S": "JCB ?(?:CARD|カード) ?S", "JCBザ・クラス": "ザ・クラス|THE CLASS", "JCBゴールド": "JCBゴールド ザ・プレミア", "JCBプラチナ": "", "JALカード": "JAL・JCBカード|JALプラチナ|JAL CLUB-A|JALカード|JALカードnavi|JAL ?navi", "ANAカード": "ANA ?VISA|ANA ?JCB|ANAアメックス|ANAカード", "楽天プレミアムカード": "楽天プレミアム", "三井住友カード プラチナプリファード": "プラチナプリファード", "三井住友カード ゴールド": "ゴールド（NL）|ゴールドNL", "ラグジュアリーカード": "Luxury Card", "エポスゴールドカード": "エポスゴールド", "セゾンプラチナ・ビジネス・アメックス": "セゾンプラチナ", "dカード GOLD": "dカード ?GOLD|dカードゴールド", "ヒルトン・オナーズ アメックス": "ヒルトン", "PayPayカード": "PayPay", "イオンカード": "イオン|イオンカードセレクト", "ウエルシアカード": "", "東急カード": "TOKYU CARD", "ビックカメラSuicaカード": "ビックカメラ", "UCSカード": "UCS", "エポスカード": "エポス|EPOS",
   "dカード": "dcard|[dｄ] ?カード", "au PAYカード": "au ?PAY", "リクルートカード": "リクルート", "セゾンカード": "セゾン|SAISON", "ライフカード": "ライフ",
   "アメリカン・エキスプレス": "アメックス|American Express|AMEX", "ビューカード": "ビュー|VIEW", "Oliveフレキシブルペイ": "Olive",
-  "三菱UFJカード": "三菱UFJ|MUFG", "Marriott Bonvoyアメックス": "Marriott|マリオット", "ダイナースクラブ": "ダイナース|Diners", "Amazon Mastercard": "Amazon",
+  "三菱UFJカード": "三菱UFJ|三菱ＵＦＪカード|三菱ＵＦＪ|MUFG", "Marriott Bonvoyアメックス": "Marriott|マリオット", "ダイナースクラブ": "ダイナース|Diners", "Amazon Mastercard": "Amazon",
   "メルカード": "メルカリ|mercard", "Visa LINE Payクレジットカード": "LINE ?Pay|LINEクレカ", "セブンカード・プラス": "セブンカード|nanaco", "ルミネカード": "ルミネ",
   "ヤフーカード": "Yahoo", "Orico Card": "オリコ|Orico|オリコカード", "P-oneカード": "P-one", "ACマスターカード": "ACマスター", "プロミスVisa": "プロミス",
  },
  "protein": {
-  "ザバス": "SAVAS|明治|サバス|zavas", "matsukiyo LAB": "マツキヨ|matsukiyo", "ディアナチュラ": "Dear-?Natura|アサヒ", "LIMITEST": "リミテスト", "ファイン": "FINE", "マイプロテイン": "Myprotein|My ?Protein", "ビーレジェンド": "be ?LEGEND", "DNS": "", "VALX": "バルクス", "ゴールドスタンダード": "Gold Standard|Optimum Nutrition|オプティマム",
+  "ザバス": "SAVAS|明治|サバス|zavas", "matsukiyo LAB": "マツキヨ|matsukiyo", "ディアナチュラ": "Dear-?Natura|アサヒ|ディアナチュラアクティブ", "ザプロ": "THE PROTEIN|ザ・プロテイン|武内製薬", "WINZONE": "ウィンゾーン", "MADPROTEIN": "マッドプロテイン", "プライマリー": "PRIMARY", "Naturecan": "ネイチャーカン", "VITAS": "バイタス", "プロポ": "PROPO", "uFit": "ユーフィット", "NATURALMODE": "ナチュラルモード", "オイコス": "Oikos", "HIGH CLEAR": "ハイクリアー", "Applied Nutrition": "", "LIMITEST": "リミテスト", "ファイン": "FINE", "マイプロテイン": "Myprotein|My ?Protein", "ビーレジェンド": "be ?LEGEND", "DNS": "", "VALX": "バルクス", "ゴールドスタンダード": "Gold Standard|Optimum Nutrition|オプティマム",
   "ウイダー": "ウィダー|Weider|森永", "ULTORA": "ウルトラ", "エクスプロージョン": "X-?PLOSION", "LÝFT": "LYFT|リフト", "タンパクオトメ": "", "アルプロン": "ALPRON",
   "ニチガ": "NICHIGA", "グロング": "GronG", "ハレオ": "HALEO", "ケンタイ": "Kentai|健康体力研究所", "ボディウイング": "Bodywing", "FIXIT": "", "REYS": "レイズ",
   "ザバス ミルクプロテイン": "ミルクプロテイン", "MARUKOME": "大豆プロテイン", "KANEKA": "", "バルクスポーツ": "Bulk ?Sports", "ファインラボ": "FINE ?LAB", "ゴールドジム": "GOLD'?S GYM",
@@ -71,7 +71,7 @@ BRANDS = {
 # メーカー（同じ項目にブランドと並んで出たとき、メーカー名を別ブランドとして数えないため）
 MAKERS = {
  "toner": {"d プログラム": "資生堂", "エリクシール": "資生堂", "アクアレーベル": "資生堂", "イハダ": "資生堂", "クレ・ド・ポー ボーテ": "資生堂",
-           "肌ラボ": "ロート製薬", "メラノCC": "ロート製薬", "オバジ": "ロート製薬", "キュレル": "花王", "ソフィーナ": "花王", "エスト": "花王",
+           "肌ラボ": "ロート製薬", "メラノCC": "ロート製薬", "オバジ": "ロート製薬", "アクネス": "ロート製薬", "キュレル": "花王", "ソフィーナ": "花王", "エスト": "花王",
            "雪肌精": "コーセー", "コスメデコルテ": "コーセー", "ONE BY KOSE": "コーセー", "ミノン": "第一三共ヘルスケア", "トランシーノ": "第一三共ヘルスケア"},
  "shampoo": {"THE ANSWER": "花王", "エッセンシャル": "花王", "メリット": "花王", "セグレタ": "花王", "サクセス": "花王", "キュレル": "花王", "TSUBAKI": "資生堂プロフェッショナル"},
  "protein": {"ザバス": "明治", "ウイダー": "森永"},
@@ -127,6 +127,12 @@ def run():
                 have[canon].aliases, have[canon].maker = al, mk
             else:
                 db.add(Brand(category_id=c.id, canonical_name=canon, aliases=al, maker=mk))
+        if key in BRANDS:          # 辞書から外した・名前を変えたブランドは消す（読み取りは backfill が新しい辞書で作り直す）
+            for name, b in have.items():
+                if name not in BRANDS[key]:
+                    db.query(Mention).filter_by(brand_id=b.id).delete()
+                    db.query(OwnBrand).filter_by(brand_id=b.id).update({"brand_id": None})
+                    db.delete(b)
     db.commit(); db.close()
     print("seeded")
 

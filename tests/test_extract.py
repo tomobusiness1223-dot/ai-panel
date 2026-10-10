@@ -200,3 +200,33 @@ def test_classify_link_strict_rejects_single_answer_share():
     kind, reason = classify_link(u, strict=True)
     assert kind == "s_t" and reason and "chatgpt.com/share/" in reason
     assert classify_link("https://chatgpt.com/share/6ac8c95a-8620-83ee-b30c-304855025c54", strict=True) == ("share", None)
+
+
+def test_entity_marker_link_title_memory_and_form():
+    from pipeline.share_html import _message_to_text, clean_markup, MEMORY_MARK
+    from pipeline.extract import personalization_level, asks_questions
+    raw = {"author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ['### 1位\u3000\ue200entity\ue202["product","イハダ 薬用うるおいローション"]\ue201\n\ue200image_group\ue202{"q":["x"]}\ue201\n- 肌荒れを防ぐ']}}
+    assert _message_to_text(raw)[1].startswith("### 1位\u3000イハダ 薬用うるおいローション")
+    assert clean_markup('<title size="lg">1位　<Link url="https://www.recruit-card.jp/" title="リクルートカード"/></title>') == "1位　リクルートカード"
+    t = clean_markup('今39歳なら早めに検討する価値があるよ。<MemoryCite />')
+    assert MEMORY_MARK in t and personalization_level(t)[0] == "strong"
+    form = clean_markup('<AskUserDetails button_label="絞る" invitation="あと2点教えてください。" questions={[{"question":"1. あなたの肌質に近いものは？","type":"single_select","options":["乾燥肌","脂性肌"]},{"question":"予算は？","options":["1,000円以下"]}]}/>')
+    assert "■ あなたの肌質に近いものは？" in form and "- 乾燥肌" in form and asks_questions(form)
+    assert clean_markup("参考価格：{turn1product2.displayed_price}", {"turn1product2": {"displayed_price": "￥627"}}) == "参考価格：￥627"
+
+def test_ranking_run_is_not_mixed_with_question_list():
+    comp = compile_brands([(1, "ミノン", ""), (2, "肌ラボ", "極潤"), (3, "キュレル", ""), (4, "なめらか本舗", ""), (5, "無印良品", "無印")])
+    txt = ("1位　ミノン アミノモイスト\n乾燥向け。\n\n2位　肌ラボ 極潤\n保湿。\n\n3位　キュレル 潤浸保湿\n無印よりしっとり。\n\n"
+           "## 教えてください\n1. 肌質は？\n2. 予算は？\n3. 使用感は？\n4. 現在は、なめらか本舗の乳液を使っていますか？")
+    fs = [f for f in extract_brands(txt, comp)]
+    rec = sorted([(f.rank, f.name) for f in fs if f.mention_type == "recommended"])
+    assert rec == [(1, "ミノン"), (2, "肌ラボ"), (3, "キュレル")]          # 質問の「4.」を4位にしない。本文の「無印より」も推薦にしない
+    assert {f.name: f.mention_type for f in fs}["なめらか本舗"] == "compared"
+
+def test_unknown_product_does_not_take_brand_from_body():
+    from pipeline.extract import ranked_items
+    comp = compile_brands([(1, "無印良品", "無印"), (2, "キュレル", "")])
+    txt = "1位：無印良品 敏感肌用化粧水\n- 990円\n\n2位：キュレル 潤浸保湿\n- 定番\n\n3位：アクセーヌ モイストバランス ローション\n- ただし6,050円なので、無印やキュレルよりかなり高めです。"
+    items = ranked_items(txt, comp)
+    assert [(i["rank"], i["brand"]) for i in items] == [(1, "無印良品"), (2, "キュレル"), (3, None)]
+    assert items[2]["product"].startswith("アクセーヌ")

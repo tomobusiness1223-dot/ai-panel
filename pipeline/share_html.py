@@ -99,6 +99,33 @@ def parse_share_html(html: str) -> dict | None:
 TAG = re.compile(r"<\s*/?\s*[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 ENTITY = re.compile(r"<\s*Entity\b([^<>]*)/?>")
 
+CHIPS = re.compile(r"\n(?:\s*-{3,}\s*\n)?\s*必要であれば、次のことができます。?[\s\S]*$")   # ChatGPT が回答の下に出す「次の質問の候補」。回答の本文ではない
+MEMORY_MARK = "〔メモリ参照〕"
+MEMCITE = re.compile(r"<\s*MemoryCite\s*/?>")
+LINK_TITLE = re.compile(r'<Link\b[^<>]*?\btitle="([^"<>]*)"[^<>]*/>')
+ASKFORM = re.compile(r"<AskUserDetails\b(.*?)/>", re.S)
+def _ask_form(m) -> str:
+    attrs = m.group(1)
+    inv = re.search(r'invitation="([^"]*)"', attrs)
+    q = re.search(r"questions=\{(\[.*\])\}", attrs, re.S)
+    try:
+        qs = json.loads(q.group(1)) if q else []
+    except Exception:
+        qs = []
+    lines = [inv.group(1)] if inv else []
+    for x in qs:
+        if not isinstance(x, dict):
+            continue
+        lines.append("")
+        lines.append("■ " + re.sub(r"^\s*\d{1,2}[.．)）]\s*", "", str(x.get("question") or "")))
+        lines += [f"- {o}" for o in (x.get("options") or []) if isinstance(o, str)]
+    return "\n".join(lines) + "\n"
+
+SLOT = re.compile(r"\{([A-Za-z0-9_]+product\d+)\.([a-z_.]+)\}")   # 商品カードの値の差し込み（価格・販売元・評価など）
+
+def strip_chips(text: str) -> str:
+    return CHIPS.sub("", text)
+
 def collect_bindings(data: dict) -> dict:
     """商品カードの参照（turnNNNproductN）→ 商品情報。会話内のどの発言に付いていても拾う。"""
     out = {}
@@ -122,9 +149,20 @@ def clean_markup(text: str, bindings: dict | None = None) -> str:
             return str(bindings[r.group(1)].get("title") or "")
         return ""
     t = ENTITY.sub(ent, text)
+    t = ASKFORM.sub(_ask_form, t)                      # 選択式の質問フォーム → 質問と選択肢の文に直す（消すと「AI が何を聞いたか」が残らない）
+    t = LINK_TITLE.sub(lambda m: m.group(1), t)        # <Link title="リクルートカード"/> → 名前を残す（順位の行がリンクだけのことがある）
+    t = MEMCITE.sub(MEMORY_MARK, t)                    # <MemoryCite/> ＝ メモリを使った箇所。目印として本文に残す
+    def slot(m):
+        v = bindings.get(m.group(1))
+        for k in m.group(2).split("."):
+            v = v.get(k) if isinstance(v, dict) else None
+        return str(v) if isinstance(v, (str, int, float)) and not str(v).startswith("http") else ""
+    t = SLOT.sub(slot, t)
+    t = re.sub(r"\[[^\]\n]*\]\(\s*\)", "", t)   # 行き先の無いリンク（「販売ページを見る」など）
     # 入力フォーム（選択式のヒアリング）を動かすためのコード行は本文ではないので外す
     t = "\n".join(l for l in t.split("\n") if not re.search(r"DIL\.useState|GenUI\.issueNewTurn|^\s*\{[@#/:]|^\s*set[A-Z]\w*\(|=>", l))
     t = TAG.sub("", t)
+    t = CHIPS.sub("", t)
     t = re.sub(r"\{/?[#@:/][^{}\n]*\}", "", t)
     t = re.sub(r"[ \t]+\n", "\n", t)
     t = re.sub(r"\n[ \t]+", "\n", t)
@@ -144,6 +182,21 @@ def _sources(meta: dict) -> list[dict]:
             out.append({"domain": g.get("domain") or httpx.URL(url).host, "url": url.split("?utm_source=")[0], "title": ((en.get("title") or "")[:200])})
     return out
 
+ENTITY_MARK = re.compile(r"\ue200entity\ue202([^\ue200\ue201]*)\ue201")
+def _entity_name(m) -> str:
+    """\ue200entity\ue202["product","イハダ 薬用うるおいローション"]\ue201 → イハダ 薬用うるおいローション"""
+    try:
+        v = json.loads(m.group(1))
+    except Exception:
+        return ""
+    if isinstance(v, list) and len(v) >= 2 and isinstance(v[1], str):
+        return v[1]
+    return ""
+
+def _bindings_of(meta: dict) -> dict:
+    b = (((meta.get("model_dil_v2") or {}).get("appData") or {}).get("opGenui") or {}).get("modelDataBindings")
+    return {k: v for k, v in b.items() if isinstance(v, dict)} if isinstance(b, dict) else {}
+
 def _message_to_text(m: dict, bindings: dict | None = None) -> tuple[str, str, bool] | None:
     role = ((m.get("author") or {}).get("role")) or ""
     if role not in ("user", "assistant"):
@@ -162,6 +215,7 @@ def _message_to_text(m: dict, bindings: dict | None = None) -> tuple[str, str, b
     if "\ue200" in text:
         if "\ue200cite" in text:
             has_cite = True
+        text = ENTITY_MARK.sub(_entity_name, text)   # entity["product","商品名"] は商品名に置き換える（消すと順位の行から名前が抜ける）
         text = re.sub(r"\ue200[^\ue200-\ue202]*(?:\ue202[^\ue200\ue201]*)*\ue201", "", text, flags=re.S)
     text = re.sub(r"[\ue000-\uf8ff]", "", text)
     if role == "assistant":
@@ -176,7 +230,7 @@ def messages_from_data(data: dict) -> list[Message]:
     if "post_messages" in data:
         out = []
         for m in data["post_messages"]:
-            r = _message_to_text(m)
+            r = _message_to_text(m, _bindings_of(m.get("metadata") or {}))
             if r:
                 out.append(Message(*r))
         return out
