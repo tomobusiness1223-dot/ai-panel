@@ -4,7 +4,7 @@
 import csv, re, sys, pathlib, collections
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from pipeline.extract import compile_brands, extract_brands, _numbered_blocks, asks_questions
+from pipeline.extract import compile_brands, extract_brands, ranked_items, asks_questions, memory_sentences
 import seed
 W = ROOT / "work"
 EXCLUDE = {"1"}   # 運営者の試し提出
@@ -17,30 +17,27 @@ def compiled_for(cat_key):
     makers = seed.MAKERS.get(cat_key, {})
     return compile_brands([(i, name, "\n".join(a for a in al.split("|") if a), makers.get(name)) for i, (name, al) in enumerate(seed.BRANDS[cat_key].items())])
 
-CHIPS = re.compile(r"\n-{3,}\s*\n+\s*必要であれば、次のことができます[\s\S]*$")   # ChatGPT の提案チップ（本文ではない）
 def strip_chips(text):
-    return CHIPS.sub("", text)
+    return text   # 提案チップは取得時に外すようになった（pipeline.share_html.CHIPS）。古い呼び出しのために残す
 
 HEAD = re.compile(r"\n(?:#{1,4} |\-{3,}\s*\n|※|\|)")
 def item_blocks(text, compiled):
-    """順位つきで薦められた商品ごとに {rank, brand, product, text}。同じブランドの別商品も1行ずつ残す。
-    本文は、その商品の行から次の商品の行（または見出し・区切り・表）の手前まで。"""
-    text = strip_chips(text)
-    found = sorted([f for f in extract_brands(text, compiled) if f.mention_type == "recommended" and f.rank], key=lambda f: f.pos)
-    seen, items = set(), []
-    for f in found:                      # 同じ順位に同じブランドが重ねて出たら最初の1つ
-        if (f.rank, f.name) in seen:
-            continue
-        seen.add((f.rank, f.name)); items.append(f)
+    """順位つきで薦められた商品ごとに {rank, brand, product, text}。辞書に無い商品は brand=None。
+    本文は、その項目の先頭から次の項目（または見出し・区切り・表）の手前まで。
+    順位の一覧が無い回答（文章で1つだけ薦めるなど）は、薦められたブランドを出た順に並べる。"""
     out = []
-    for i, f in enumerate(items):
-        s = text.rfind("\n", 0, f.pos) + 1
-        e = text.rfind("\n", 0, items[i + 1].pos) + 1 if i + 1 < len(items) else len(text)
-        body = text[s:e] if e > s else text[s:]
+    for it in ranked_items(text, compiled):
+        body = text[it["start"]:it["end"]]
         m = HEAD.search(body, 5)
         if m:
             body = body[:m.start()]
-        out.append({"rank": f.rank, "brand": f.name, "product": f.product or f.name, "text": body.strip()})
+        out.append({"rank": it["rank"], "brand": it["brand"], "product": it["product"], "text": body.strip(), "numbered": True})
+    if not out:
+        fs = sorted([f for f in extract_brands(text, compiled) if f.mention_type == "recommended"], key=lambda f: f.pos)
+        for i, f in enumerate(fs, 1):
+            s0 = text.rfind("\n", 0, f.pos) + 1
+            e0 = text.find("\n\n", f.pos); e0 = len(text) if e0 < 0 else e0
+            out.append({"rank": i, "brand": f.name, "product": f.product or f.name, "text": text[s0:e0].strip(), "numbered": False})
     return out
 
 def conversations(cat_key):

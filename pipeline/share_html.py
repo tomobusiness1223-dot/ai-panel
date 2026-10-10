@@ -182,7 +182,7 @@ def _sources(meta: dict) -> list[dict]:
             out.append({"domain": g.get("domain") or httpx.URL(url).host, "url": url.split("?utm_source=")[0], "title": ((en.get("title") or "")[:200])})
     return out
 
-ENTITY_MARK = re.compile(r"\ue200entity\ue202([^\ue200\ue201]*)\ue201")
+ENTITY_MARK = re.compile(r"\ue200(?:entity|product)\ue202([^\ue200\ue201]*)\ue201")   # entity["product","商品名"] と、商品カード product["参照","商品名",{…}]
 def _entity_name(m) -> str:
     """\ue200entity\ue202["product","イハダ 薬用うるおいローション"]\ue201 → イハダ 薬用うるおいローション"""
     try:

@@ -230,3 +230,11 @@ def test_unknown_product_does_not_take_brand_from_body():
     items = ranked_items(txt, comp)
     assert [(i["rank"], i["brand"]) for i in items] == [(1, "無印良品"), (2, "キュレル"), (3, None)]
     assert items[2]["product"].startswith("アクセーヌ")
+
+
+def test_product_card_marker_keeps_name():
+    from pipeline.share_html import _message_to_text
+    raw = {"author": {"role": "assistant"}, "content": {"content_type": "text", "parts": ['### 一番おすすめ\n\ue200product\ue202["turn0product8","バルサン プロEX 12～16畳用",{"render_as":"hero"}]\ue201\n- 煙が届きやすい']}}
+    assert "バルサン プロEX 12～16畳用" in _message_to_text(raw)[1]
+    from pipeline.redact import redact
+    assert redact("乾燥さん 薬用しっとり化粧液") == "乾燥さん 薬用しっとり化粧液"
