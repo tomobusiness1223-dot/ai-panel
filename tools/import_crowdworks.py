@@ -125,7 +125,8 @@ def main():
                 ok = sum(1 for i in p["items"] if i["accept_status"] in ("accepted", "reference")); ng = sum(1 for i in p["items"] if i["accept_status"] == "rejected"); pend = sum(1 for i in p["items"] if i["accept_status"] == "pending")
                 core = sum(1 for i in p["items"] if i["topic"] in ("toner", "credit_card", "protein", "own") and i["accept_status"] in ("accepted", "reference"))
                 early = sum(1 for i in p["items"] if i["match_status"] == "early")
-                w.writerow([p["external_ref"].split(":", 1)[-1], ok, ng, pend, early, "処理中" if pend else ("要確認" if core == 0 or (early and early >= core) else "承認"),
+                # 判定の目安：カテゴリお題が1件でも受付（参考含む）なら承認。質問に答える前の共有も、商品が出ていればデータとして使う（2026-10-10 ユーザー決定）
+                w.writerow([p["external_ref"].split(":", 1)[-1], ok, ng, pend, early, "処理中" if pend else ("要確認" if core == 0 else "承認"),
                             " / ".join(f'{i["topic"]}:{i["match_status"] or i["accept_status"]}' + (f'（{i["reason"][:20]}）' if i["reason"] else "") for i in p["items"])])
         print(f"work/cw_status.csv に {len(r.json())} 人分を出力")
         return
