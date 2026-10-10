@@ -20,6 +20,7 @@ NAMES = ["participants", "responses", "turns", "own_brand", "premises", "sources
 
 def clip(s, n=44):
     s = re.sub(r"\s+", " ", s).strip(" 　*・-。")
+    s = re.sub(r"^(?:おすすめの?理由|選定理由|理由|ポイント|特徴)\s*[:：]\s*", "", s)
     return s if len(s) <= n else s[:n - 1] + "…"
 
 # ---- 商品1件の読み取り ----
@@ -138,7 +139,8 @@ def build(cat):
         ai_first_text = c["first_text"] or ""
         mem_s = memory_sentences(ai_first_text)
         m = STRONG.search(ai_first_text.replace(MEMORY_MARK, ""))
-        mem_ev = mem_s[0] if mem_s else (ai_first_text[max(0, m.start() - 30):m.end() + 50].replace("\n", " ") if m else "")
+        # 引用するのは「以前〜と伺いました」のように過去の会話に触れた文だけ。メモリ参照の印だけが付いた回答は、どの文か特定できないので引用しない
+        mem_ev = ai_first_text[max(0, m.start() - 30):m.end() + 50].replace("\n", " ") if m else ""
         ob = own.get(pid)
         p = {"pid": pid, "who": f"{a.get('age_decade') or '年代不明'}{ {'F': '女性', 'M': '男性'}.get(a.get('gender'), '') }",
              "g": a.get("gender", ""), "age": a.get("age_decade", ""), "memory": a.get("memory", ""), "freq": a.get("usage_freq", ""), "shop": a.get("shopping_ai_freq", ""),
@@ -147,7 +149,7 @@ def build(cat):
              "first": first if stage != "single" else [], "final": final if stage == "updated" else [], "single": first if stage == "single" else [],
              "own": {"b": (ob or {}).get("brand", ""), "raw": clip((ob or {}).get("raw_text", ""), 30)} if ob and (ob.get("raw_text") or "").strip() not in ("", "なし", "無し", "ない", "特になし") else None,
              "prem": premise_info(prem[pid], comp) if pid in prem else None,
-             "mem": {"marked": bool(mem_s), "ev": clip(mem_ev.replace(MEMORY_MARK, ""), 110)} if mem_ev else None,
+             "mem": {"marked": bool(mem_s), "ev": clip(mem_ev.replace(MEMORY_MARK, ""), 110)} if (mem_ev or mem_s) else None,
              "src": sorted(([d, source_type(d)[0], n] for d, n in src.get(pid, {}).items()), key=lambda x: -x[2])}
         people.append(p)
     stages = collections.Counter(p["stage"] for p in people)
