@@ -104,21 +104,20 @@ MEMORY_MARK = "〔メモリ参照〕"
 MEMCITE = re.compile(r"<\s*MemoryCite\s*/?>")
 LINK_TITLE = re.compile(r'<Link\b[^<>]*?\btitle="([^"<>]*)"[^<>]*/>')
 ASKFORM = re.compile(r"<AskUserDetails\b(.*?)/>", re.S)
+QSTR = r'"((?:[^"\\]|\\.)*)"'
 def _ask_form(m) -> str:
+    """質問フォーム。questions は JSON のことも、キーに引用符の無い JS の書き方のこともあるので、文字列を直接拾う。"""
     attrs = m.group(1)
     inv = re.search(r'invitation="([^"]*)"', attrs)
-    q = re.search(r"questions=\{(\[.*\])\}", attrs, re.S)
-    try:
-        qs = json.loads(q.group(1)) if q else []
-    except Exception:
-        qs = []
     lines = [inv.group(1)] if inv else []
-    for x in qs:
-        if not isinstance(x, dict):
-            continue
+    qs = list(re.finditer(r'["\']?question["\']?\s*:\s*' + QSTR, attrs))
+    for i, q in enumerate(qs):
+        seg = attrs[q.end():qs[i + 1].start() if i + 1 < len(qs) else len(attrs)]
+        o = re.search(r'["\']?options["\']?\s*:\s*\[(.*?)\]', seg, re.S)
+        opts = re.findall(QSTR, o.group(1)) if o else []
         lines.append("")
-        lines.append("■ " + re.sub(r"^\s*\d{1,2}[.．)）]\s*", "", str(x.get("question") or "")))
-        lines += [f"- {o}" for o in (x.get("options") or []) if isinstance(o, str)]
+        lines.append("■ " + re.sub(r"^\s*\d{1,2}[.．)）]\s*", "", q.group(1).replace('\\"', '"')))
+        lines += [f"- {x}" for x in opts]
     return "\n".join(lines) + "\n"
 
 SLOT = re.compile(r"\{([A-Za-z0-9_]+product\d+)\.([a-z_.]+)\}")   # 商品カードの値の差し込み（価格・販売元・評価など）

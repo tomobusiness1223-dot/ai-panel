@@ -238,3 +238,21 @@ def test_product_card_marker_keeps_name():
     assert "バルサン プロEX 12～16畳用" in _message_to_text(raw)[1]
     from pipeline.redact import redact
     assert redact("乾燥さん 薬用しっとり化粧液") == "乾燥さん 薬用しっとり化粧液"
+
+
+def test_ask_form_with_unquoted_keys():
+    from pipeline.share_html import clean_markup
+    raw = """<AskUserDetails
+  invitation="分かる範囲で答えてください。"
+  button_label="好みや肌質を伝える"
+  questions={[
+    {
+      question: "1. あなたの肌質に近いものは？",
+      type: "single_select",
+      options: ["乾燥肌", "混合肌（部分的に乾燥・べたつく）"],
+    },
+    { question: "3. 化粧水1本の予算は？", options: ["1,000円未満", "1,000〜2,000円"] },
+  ]}
+/>"""
+    t = clean_markup(raw)
+    assert "■ あなたの肌質に近いものは？" in t and "- 混合肌（部分的に乾燥・べたつく）" in t and "■ 化粧水1本の予算は？" in t and "- 1,000〜2,000円" in t
